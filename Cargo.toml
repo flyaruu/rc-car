@@ -1,0 +1,6 @@
+[workspace]
+members = [
+	"car",
+	"controller", "protocol",
+]
+resolver = "2"
