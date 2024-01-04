@@ -7,7 +7,7 @@ extern crate alloc;
 use core::mem::MaybeUninit;
 use embassy_executor::Executor;
 
-use embassy_sync::{channel::{Receiver, Sender, Channel}, blocking_mutex::raw::NoopRawMutex, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal, pubsub::{PubSubChannel, Subscriber, Publisher}};
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
 use esp_backtrace as _;
@@ -30,7 +30,9 @@ use esp_backtrace as _;
 use crate::{telemetry::{connection_state, telemetry_receiver}, steering::rotary_steering_x};
 
 // use esp_wifi::wifi::{WifiController, WifiDevice, WifiEvent, WifiStaDevice, WifiState};
-const COMMAND_QUEUE_SIZE: usize = 20;
+const MAX_PUBS: usize = 5;
+const MAX_SUBS: usize = 5;
+const MAX_MESSAGES: usize = 10;
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
@@ -90,20 +92,20 @@ fn main() -> ! {
     let wifi = peripherals.WIFI;
     let esp_now = EspNow::new(&init, wifi).unwrap();
     hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
-    let command_channel: Channel<NoopRawMutex, ControlMessage, COMMAND_QUEUE_SIZE> = Channel::new();
+    let command_channel: PubSubChannel<NoopRawMutex, ControlMessage, MAX_MESSAGES,MAX_SUBS,MAX_PUBS> = PubSubChannel::new();
     let command_channel = make_static!(command_channel);
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
     let heartbeat_signal: &mut Signal<NoopRawMutex,u64> = make_static!(Signal::new());
 
     executor.run(|spawner| {
-        spawner.spawn(sender(esp_sender,command_channel.receiver())).unwrap();
+        spawner.spawn(sender(esp_sender,command_channel.subscriber().unwrap())).unwrap();
         spawner.spawn(telemetry_receiver(esp_receiver,rtc,heartbeat_signal)).unwrap();
 
         spawner.spawn(connection_state(heartbeat_signal,rtc,status_pin)).unwrap();
-        spawner.spawn(rotary_steering_x(rotary_pin_x_a,rotary_pin_x_b,command_channel.sender())).unwrap();
+        spawner.spawn(rotary_steering_x(rotary_pin_x_a,rotary_pin_x_b,command_channel.publisher().unwrap())).unwrap();
         // spawner.spawn(rotary_y(rotary_pin_y_a,rotary_pin_y_b,command_channel.sender())).unwrap();
-        spawner.spawn(button_x(button_pin_x,command_channel.sender())).unwrap();
-        spawner.spawn(button_y(button_pin_y,command_channel.sender())).unwrap();
+        spawner.spawn(button_x(button_pin_x,command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(button_y(button_pin_y,command_channel.publisher().unwrap())).unwrap();
         // spawner.spawn(debug_command(command_channel.receiver())).unwrap();
 
     })
@@ -117,26 +119,26 @@ fn main() -> ! {
 
 
 #[embassy_executor::task]
-async fn button_x(button_pin: Gpio5<Input<PullUp>>, sender: Sender<'static, NoopRawMutex, ControlMessage,COMMAND_QUEUE_SIZE>) {
+async fn button_x(button_pin: Gpio5<Input<PullUp>>, sender: Publisher<'static, NoopRawMutex, ControlMessage,MAX_MESSAGES,MAX_PUBS,MAX_SUBS>) {
     button(button_pin, Axis::X, sender).await;
 }
 
 #[embassy_executor::task]
-async fn button_y(button_pin: Gpio9<Input<PullUp>>, sender: Sender<'static, NoopRawMutex, ControlMessage,COMMAND_QUEUE_SIZE>) {
+async fn button_y(button_pin: Gpio9<Input<PullUp>>, sender: Publisher<'static, NoopRawMutex, ControlMessage,MAX_MESSAGES,MAX_PUBS,MAX_SUBS>) {
     button(button_pin, Axis::Y, sender).await;
 }
 
 
 
-async fn button<A: InputPin + Wait>(mut button_pin: A, axis: Axis, sender: Sender<'static, NoopRawMutex, ControlMessage,COMMAND_QUEUE_SIZE>) {
+async fn button<A: InputPin + Wait>(mut button_pin: A, axis: Axis, sender: Publisher<'static, NoopRawMutex, ControlMessage,MAX_MESSAGES,MAX_PUBS,MAX_SUBS>) {
     let mut was_high = true;
     loop {
         button_pin.wait_for_any_edge().await.unwrap();
         let is_high = button_pin.is_high().unwrap();
         match (is_high,was_high) {
             (true, true) => {},
-            (true, false) => {sender.send(ControlMessage::Release(axis)).await},
-            (false, true) => {sender.send(ControlMessage::Press(axis)).await},
+            (true, false) => {sender.publish(ControlMessage::Release(axis)).await},
+            (false, true) => {sender.publish(ControlMessage::Press(axis)).await},
             (false, false) => {},
         }
         was_high = is_high;
@@ -144,10 +146,10 @@ async fn button<A: InputPin + Wait>(mut button_pin: A, axis: Axis, sender: Sende
 
 }
 #[embassy_executor::task]
-async fn sender( mut esp_sender: EspNowSender<'static>, receiver: Receiver<'static, NoopRawMutex, ControlMessage,COMMAND_QUEUE_SIZE>) {
+async fn sender( mut esp_sender: EspNowSender<'static>, mut subscriber: Subscriber<'static, NoopRawMutex, ControlMessage,MAX_MESSAGES,MAX_PUBS,MAX_SUBS>) {
     info!("Starting sender...");
     loop {
-        let message = receiver.receive().await;
+        let message = subscriber.next_message_pure().await;
         esp_sender.send_async(&BROADCAST_ADDRESS, &message.to_bytes().unwrap()).await.unwrap();
     }
 }
