@@ -8,6 +8,7 @@ use core::mem::MaybeUninit;
 use embassy_executor::Executor;
 
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal, pubsub::{PubSubChannel, Subscriber, Publisher}};
+use embassy_time::Timer;
 use embedded_hal::digital::InputPin;
 use embedded_hal_async::digital::Wait;
 use esp_backtrace as _;
@@ -16,7 +17,7 @@ use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, BROADCAST_ADDRESS, 
 use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, gpio::{Input, PullUp, Gpio5, Gpio9}, Rtc};
 
 use log::info;
-use protocol::{ControlMessage, Axis};
+use protocol::{ControlMessage, Axis, BlinkerState};
 
 use static_cell::make_static;
 
@@ -107,10 +108,28 @@ fn main() -> ! {
         spawner.spawn(button_x(button_pin_x,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(button_y(button_pin_y,command_channel.publisher().unwrap())).unwrap();
         // spawner.spawn(debug_command(command_channel.receiver())).unwrap();
+        spawner.spawn(blinker_test(command_channel.publisher().unwrap())).unwrap();
 
     })
 }
 
+#[embassy_executor::task]
+async fn blinker_test(publisher: Publisher<'static, NoopRawMutex, ControlMessage,MAX_MESSAGES,MAX_PUBS,MAX_SUBS>) {
+    loop {
+        publisher.publish(ControlMessage::BlinkerCommand(protocol::BlinkerState::Alarm)).await;
+        info!("Blinker state: {:?}",BlinkerState::Alarm);
+        Timer::after_secs(2).await;
+        publisher.publish(ControlMessage::BlinkerCommand(protocol::BlinkerState::Left)).await;
+        info!("Blinker state: {:?}",BlinkerState::Left);
+        Timer::after_secs(2).await;
+        publisher.publish(ControlMessage::BlinkerCommand(protocol::BlinkerState::Right)).await;
+        info!("Blinker state: {:?}",BlinkerState::Right);
+        Timer::after_secs(2).await;
+        publisher.publish(ControlMessage::BlinkerCommand(protocol::BlinkerState::Off)).await;
+        info!("Blinker state: {:?}",BlinkerState::Off);
+        Timer::after_secs(3).await;
+    }
+}
 
 // #[embassy_executor::task]
 // async fn rotary_y(pin_a: Gpio18<Input<PullUp>>,pin_b: Gpio19<Input<PullUp>>, sender: Sender<'static, NoopRawMutex, ControlMessage,COMMAND_QUEUE_SIZE>) {

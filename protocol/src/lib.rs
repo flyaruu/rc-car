@@ -16,12 +16,22 @@ pub enum ProtocolError {
 pub enum Axis {
     X, Y
 }
+
+#[derive(Serialize,Deserialize,Clone,Debug)]
+pub enum BlinkerState {
+    Left,
+    Right,
+    Off,
+    Alarm,
+}
+
 #[derive(Serialize,Deserialize,Clone,Debug)]
 pub enum ControlMessage {
     SteeringPosition(i32),
-    Value(Axis,i32),
+    // Value(Axis,i32),
     Press(Axis),
     Release(Axis),
+    BlinkerCommand(BlinkerState),
 }
 
 #[derive(Serialize,Deserialize,Clone)]

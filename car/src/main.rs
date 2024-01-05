@@ -5,6 +5,7 @@
 
 extern crate alloc;
 use core::mem::MaybeUninit;
+use blinkers::blinker;
 use embassy_executor::Executor;
 use embassy_sync::{pubsub::{PubSubChannel, Subscriber, Publisher}, blocking_mutex::raw::NoopRawMutex};
 use embassy_time::Timer;
@@ -21,6 +22,7 @@ use esp_backtrace as _;
 use crate::servo::Servo;
 
 mod servo;
+mod blinkers;
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
@@ -56,6 +58,9 @@ fn main() -> ! {
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
 
     let steering_pin = io.pins.gpio3.into_push_pull_output();
+
+    let left_blinker_pin = io.pins.gpio18.into_push_pull_output();
+    let right_blinker_pin = io.pins.gpio19.into_push_pull_output();
 
 
     let ledc = LEDC::new(peripherals.LEDC, clocks);
@@ -111,6 +116,7 @@ fn main() -> ! {
         spawner.spawn(steering(command_channel.subscriber().unwrap(),steering_servo)).unwrap();
         spawner.spawn(telemetry_sender(esp_sender, telemetry_channel.subscriber().unwrap())).unwrap();
         spawner.spawn(heartbeat(telemetry_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(blinker(spawner,command_channel.subscriber().unwrap(),left_blinker_pin,right_blinker_pin)).unwrap();
     })
 }
 
