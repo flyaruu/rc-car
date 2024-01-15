@@ -1,16 +1,15 @@
 use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
-use embassy_sync::{pubsub::{Subscriber, Publisher}, blocking_mutex::raw::NoopRawMutex, signal::{Signal, self}};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::Timer;
 use embedded_hal::digital::OutputPin;
-use hal::gpio::{Gpio18, Output, PushPull, Gpio19};
-use protocol::{ControlMessage, BlinkerState, TelemetryMessage};
+use protocol::{ControlMessage, BlinkerState};
 use static_cell::make_static;
 
-use crate::{MAX_MESSAGES, MAX_SUBS, MAX_PUBS};
+use crate::{CommandSubscriber, LeftBlinkerPin, RightBlinkerPin};
 
 #[embassy_executor::task]
-pub async fn blinker(spawner: Spawner, subscriber: Subscriber<'static, NoopRawMutex, ControlMessage, MAX_MESSAGES, MAX_SUBS, MAX_PUBS>, left_pin: Gpio18<Output<PushPull>>, right_pin: Gpio19<Output<PushPull>>) {
+pub async fn blinker(spawner: Spawner, subscriber: CommandSubscriber, left_pin: LeftBlinkerPin, right_pin: RightBlinkerPin) {
     let signal: Signal<NoopRawMutex, BlinkerState> = Signal::new();
     let signal = make_static!(signal);
     spawner.spawn(blinker_controller(subscriber, signal)).unwrap();
@@ -18,7 +17,7 @@ pub async fn blinker(spawner: Spawner, subscriber: Subscriber<'static, NoopRawMu
 }
 
 #[embassy_executor::task]
-async fn blinker_controller(mut subscriber: Subscriber<'static, NoopRawMutex, ControlMessage, MAX_MESSAGES, MAX_SUBS, MAX_PUBS>, signal: &'static Signal<NoopRawMutex, BlinkerState>)-> ! {
+async fn blinker_controller(mut subscriber: CommandSubscriber, signal: &'static Signal<NoopRawMutex, BlinkerState>)-> ! {
     loop {
         match subscriber.next_message_pure().await {
             ControlMessage::BlinkerCommand(blinker) => {
@@ -33,7 +32,7 @@ async fn blinker_controller(mut subscriber: Subscriber<'static, NoopRawMutex, Co
 }
 
 #[embassy_executor::task]
-async fn blinkers(signal: &'static Signal<NoopRawMutex, BlinkerState>, mut left_pin: Gpio18<Output<PushPull>>, mut right_pin: Gpio19<Output<PushPull>>)-> ! {
+async fn blinkers(signal: &'static Signal<NoopRawMutex, BlinkerState>, mut left_pin: LeftBlinkerPin, mut right_pin: RightBlinkerPin)-> ! {
     let mut state = BlinkerState::Off;
     let mut blink_state = false;
     loop {

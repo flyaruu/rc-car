@@ -5,31 +5,54 @@
 
 extern crate alloc;
 use core::mem::MaybeUninit;
-use blinkers::blinker;
+
 use embassy_executor::Executor;
 use embassy_sync::{pubsub::{PubSubChannel, Subscriber, Publisher}, blocking_mutex::raw::NoopRawMutex};
 use embassy_time::Timer;
 use esp_backtrace as _;
+use esp_println::println;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, EspNowReceiver, EspNowSender, BROADCAST_ADDRESS}};
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::{self, config::PinConfig}}, gpio::{PushPull, Output, Gpio3}};
+use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::{self, config::PinConfig}}, gpio::{PushPull, Output, Gpio3, Gpio5, Gpio2, Gpio4, Gpio19, Gpio10, Gpio9, Gpio18, Gpio7, Gpio1}};
 
 use log::{info, error};
-use protocol::{ControlMessage, TelemetryMessage};
+use protocol::{ControlMessage, TelemetryMessage, CommandChannel, MAX_MESSAGES, MAX_SUBS, MAX_PUBS, CommandSubscriber, CommandPublisher};
 use static_cell::make_static;
 
 use esp_backtrace as _;
 
-use crate::servo::Servo;
+use crate::{servo::Servo, lights::{HeadlightController, light_controller}, blinkers::blinker};
 
 mod servo;
 mod blinkers;
+mod lights;
+
+
+pub type RightBlinkerPin = Gpio1<Output<PushPull>>;
+pub type BrakeLightPin = Gpio2<Output<PushPull>>;
+pub type TailLightPin = Gpio3<Output<PushPull>>;
+pub type ReverseLightPin = Gpio4<Output<PushPull>>;
+pub type LeftBlinkerPin = Gpio5<Output<PushPull>>;
+pub type MotorPin = Gpio7<Output<PushPull>>;
+
+pub type HeadlightPin = Gpio19<Output<PushPull>>;
+pub type FrontLeftBlinkerPin = Gpio18<Output<PushPull>>;
+pub type FrontRightBlinkerPin = Gpio9<Output<PushPull>>;
+pub type SteeringPin = Gpio10<Output<PushPull>>;
+
+
+pub const SERVO_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer0;
+pub const LED_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer1;
+pub const MOTOR_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer2;
+
+pub const STEERING_CHANNEL: channel::Number = channel::Number::Channel0;
+pub const MOTOR_CHANNEL: channel::Number = channel::Number::Channel1;
+pub const HEADLIGHT_CHANNEL: channel::Number = channel::Number::Channel2;
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
 
-const MAX_PUBS: usize = 5;
-const MAX_SUBS: usize = 5;
-const MAX_MESSAGES: usize = 10;
+
+const MOTOR_FREQUENCY: u32 = 400;
 
 fn init_heap() {
     const HEAP_SIZE: usize = 32 * 1024;
@@ -57,17 +80,23 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
 
-    let steering_pin = io.pins.gpio3.into_push_pull_output();
+    let steering_pin = io.pins.gpio10.into_push_pull_output();
+    let motor_pin = io.pins.gpio7.into_push_pull_output();
 
-    let left_blinker_pin = io.pins.gpio18.into_push_pull_output();
-    let right_blinker_pin = io.pins.gpio19.into_push_pull_output();
+    let headlight_pin = io.pins.gpio19.into_push_pull_output();
+    let taillight_pin = io.pins.gpio3.into_push_pull_output();
+    let brakelight_pin = io.pins.gpio2.into_push_pull_output();
+
+    let left_blinker_pin = io.pins.gpio5.into_push_pull_output();
+    let right_blinker_pin = io.pins.gpio1.into_push_pull_output();
+
 
 
     let ledc = LEDC::new(peripherals.LEDC, clocks);
     let ledc = make_static!(ledc);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
     
-    let mut servo_timer = ledc.get_timer::<LowSpeed>(timer::Number::Timer0);
+    let mut servo_timer = ledc.get_timer::<LowSpeed>(SERVO_TIMER_NUMBER);
     servo_timer
         .configure(timer::config::Config {
             duty: timer::config::Duty::Duty14Bit,
@@ -75,19 +104,58 @@ fn main() -> ! {
             frequency: 50_u32.Hz(),
         })
         .unwrap();
-    let lstimer0 = make_static!(servo_timer);
+    let servo_timer = make_static!(servo_timer);
 
-    let mut steering_channel = ledc.get_channel(channel::Number::Channel0, steering_pin);
+    let mut motor_timer = ledc.get_timer::<LowSpeed>(SERVO_TIMER_NUMBER);
+    motor_timer
+        .configure(timer::config::Config {
+            duty: timer::config::Duty::Duty14Bit,
+            clock_source: timer::LSClockSource::APBClk,
+            frequency: 50_u32.Hz(),
+        })
+        .unwrap();
+    let motor_timer = make_static!(motor_timer);
+
+    let mut led_timer = ledc.get_timer::<LowSpeed>(LED_TIMER_NUMBER);
+    led_timer
+        .configure(timer::config::Config {
+            duty: timer::config::Duty::Duty14Bit,
+            clock_source: timer::LSClockSource::APBClk,
+            frequency: 1000_u32.Hz(),
+        })
+        .unwrap();
+    let led_timer = make_static!(led_timer);
+
+    let mut steering_channel = ledc.get_channel(STEERING_CHANNEL, steering_pin);
     steering_channel
         .configure(hal::ledc::channel::config::Config {
-            timer: lstimer0,
+            timer: servo_timer,
             duty_pct: 0,
             pin_config: PinConfig::PushPull,
         })
         .unwrap();
-    let steering_servo: &'static mut Servo<'_, hal::gpio::GpioPin<Output<PushPull>, 3>, 600, 2415,14,50> = make_static!(Servo::new(steering_channel));
 
+    let mut motor_channel = ledc.get_channel(MOTOR_CHANNEL, motor_pin);
+    motor_channel
+        .configure(hal::ledc::channel::config::Config {
+            timer: motor_timer,
+            duty_pct: 0,
+            pin_config: PinConfig::PushPull,
+        })
+        .unwrap();
 
+    let mut headlight_channel = ledc.get_channel(HEADLIGHT_CHANNEL, headlight_pin);
+    headlight_channel
+        .configure(hal::ledc::channel::config::Config {
+            timer: led_timer,
+            duty_pct: 0,
+            pin_config: PinConfig::PushPull,
+        })
+        .unwrap();
+    let headlight_controller = HeadlightController::new(headlight_channel,taillight_pin);
+
+    let steering_servo: &'static mut Servo<'_, SteeringPin, 600, 2415,14,50> = make_static!(Servo::new(steering_channel));
+    let motor_servo: &'static mut Servo<'_, MotorPin, 0, 16384, 14, MOTOR_FREQUENCY> = make_static!(Servo::new(motor_channel));
 
     let executor = make_static!(Executor::new());
     let timer_group = TimerGroup::new(peripherals.TIMG0, &clocks);    
@@ -108,15 +176,19 @@ fn main() -> ! {
     
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
 
-    let command_channel: &PubSubChannel<NoopRawMutex, ControlMessage, MAX_MESSAGES, MAX_SUBS, MAX_PUBS> = make_static!(PubSubChannel::new());
+    let command_channel: &CommandChannel = make_static!(PubSubChannel::new());
     let telemetry_channel: &PubSubChannel<NoopRawMutex, TelemetryMessage, MAX_MESSAGES, MAX_SUBS, MAX_PUBS> = make_static!(PubSubChannel::new());
 
     executor.run(|spawner| {
         spawner.spawn(receiver(esp_receiver,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(steering(command_channel.subscriber().unwrap(),steering_servo)).unwrap();
+        spawner.spawn(motor(command_channel.subscriber().unwrap(),motor_servo)).unwrap();
         spawner.spawn(telemetry_sender(esp_sender, telemetry_channel.subscriber().unwrap())).unwrap();
         spawner.spawn(heartbeat(telemetry_channel.publisher().unwrap())).unwrap();
         spawner.spawn(blinker(spawner,command_channel.subscriber().unwrap(),left_blinker_pin,right_blinker_pin)).unwrap();
+        spawner.spawn(light_controller(command_channel.subscriber().unwrap(),headlight_controller)).unwrap();
+        // spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
+        // spawner.spawn(test_motor(command_channel.publisher().unwrap())).unwrap();
     })
 }
 
@@ -130,7 +202,7 @@ async fn heartbeat(publisher: Publisher<'static, NoopRawMutex, TelemetryMessage,
 }
 
 #[embassy_executor::task]
-async fn steering(mut subscriber: Subscriber<'static, NoopRawMutex, ControlMessage, MAX_MESSAGES, MAX_SUBS, MAX_PUBS>, steering_servo: &'static mut Servo<'_, Gpio3<Output<PushPull>>, 600, 2415, 14, 50>)-> ! {
+async fn steering(mut subscriber: CommandSubscriber, steering_servo: &'static mut Servo<'_, SteeringPin, 600, 2415, 14, 50>)-> ! {
     loop {
         match subscriber.next_message_pure().await {
             ControlMessage::SteeringPosition(value) => {
@@ -138,13 +210,25 @@ async fn steering(mut subscriber: Subscriber<'static, NoopRawMutex, ControlMessa
                 let value: u32 = (value.min(100).max(0)) as u32;
                 steering_servo.set_percentage(value as u8)                
             },
-            _ => {
-                info!("Sometihng else");
-            }
+            _ => {}
         }
-
     }
 }
+
+#[embassy_executor::task]
+async fn motor(mut subscriber: CommandSubscriber, motor_servo: &'static mut Servo<'_, MotorPin, 0, 16384, 14, MOTOR_FREQUENCY>)-> ! {
+    loop {
+        match subscriber.next_message_pure().await {
+            ControlMessage::MotorPower(value) => {
+                info!("Motor value: {}",value);
+                let value: u32 = (value.min(99).max(0)) as u32;
+                motor_servo.set_percentage(value as u8)                
+            },
+            _ => {}
+        }
+    }
+}
+
 
 #[embassy_executor::task]
 async fn telemetry_sender(mut esp_sender: EspNowSender<'static>, mut subscriber: Subscriber<'static, NoopRawMutex,TelemetryMessage,MAX_MESSAGES,MAX_SUBS,MAX_PUBS>)->! {
@@ -165,13 +249,14 @@ async fn telemetry_sender(mut esp_sender: EspNowSender<'static>, mut subscriber:
 }
 
 #[embassy_executor::task]
-async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: Publisher<'static, NoopRawMutex,ControlMessage,MAX_MESSAGES,MAX_SUBS,MAX_PUBS>)->! {
+async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: CommandPublisher)->! {
     info!("Starting receiver...");
     loop {
         let msg = esp_receiver.receive_async().await;
 
         let _sender = msg.info.src_address;
         let msg = ControlMessage::from_slice(&msg.data);
+        println!("Reeived: {:?}",msg);
         match msg {
             Ok(msg) => {
                 publisher.publish(msg).await;
@@ -184,3 +269,39 @@ async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: Publishe
 
     }
 }
+
+// #[embassy_executor::task]
+// async fn test_lights(publisher: CommandPublisher)->! {
+//     info!("Starting receiver...");
+//     loop {
+//         info!("High beam");
+//         publisher.publish(ControlMessage::HeadlightCommand(protocol::Lights::High)).await;
+//         Timer::after_millis(6000).await;
+//         info!("Low beam");
+//         publisher.publish(ControlMessage::HeadlightCommand(protocol::Lights::Low)).await;
+//         Timer::after_millis(6000).await;
+//         info!("Off");
+//         publisher.publish(ControlMessage::HeadlightCommand(protocol::Lights::Off)).await;
+//         Timer::after_millis(6000).await;
+//     }
+// }
+
+// #[embassy_executor::task]
+// async fn test_motor(publisher: CommandPublisher)->! {
+//     info!("Starting receiver...");
+//     loop {
+//         info!("Motor off");
+//         publisher.publish(ControlMessage::MotorPower(0)).await;
+//         Timer::after_millis(10000).await;
+//         info!("Motor 2000");
+//         publisher.publish(ControlMessage::MotorPower(20)).await;
+//         Timer::after_millis(3000).await;
+//         info!("Motor 4000");
+//         publisher.publish(ControlMessage::MotorPower(40)).await;
+//         Timer::after_millis(3000).await;
+//         info!("Motor 6000");
+//         publisher.publish(ControlMessage::MotorPower(60)).await;
+//         Timer::after_millis(3000).await;
+
+//     }
+// }
