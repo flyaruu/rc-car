@@ -12,15 +12,15 @@ use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_println::println;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, EspNowReceiver, EspNowSender, BROADCAST_ADDRESS}};
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::{self, config::PinConfig}}, gpio::{PushPull, Output, Gpio3, Gpio5, Gpio2, Gpio4, Gpio19, Gpio10, Gpio9, Gpio18, Gpio7, Gpio1}};
+use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::{self, config::PinConfig}}, gpio::{PushPull, Output, Gpio3, Gpio5, Gpio2, Gpio4, Gpio19, Gpio10, Gpio9, Gpio18, Gpio7, Gpio1, Gpio6, Gpio0}, Rtc};
 
 use log::{info, error};
-use protocol::{ControlMessage, TelemetryMessage, CommandChannel, MAX_MESSAGES, MAX_SUBS, MAX_PUBS, CommandSubscriber, CommandPublisher};
+use protocol::{ControlMessage, TelemetryMessage, MAX_MESSAGES, MAX_SUBS, MAX_PUBS, MessageChannel, MessagePublisher, Message, MessageSubscriber};
 use static_cell::make_static;
 
 use esp_backtrace as _;
 
-use crate::{servo::Servo, lights::{HeadlightController, light_controller}, blinkers::blinker};
+use crate::{servo::Servo, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor, blink_cancellation_monitor}, blinkers::blinker};
 
 mod servo;
 mod blinkers;
@@ -34,11 +34,10 @@ pub type ReverseLightPin = Gpio4<Output<PushPull>>;
 pub type LeftBlinkerPin = Gpio5<Output<PushPull>>;
 pub type MotorPin = Gpio7<Output<PushPull>>;
 
-pub type HeadlightPin = Gpio19<Output<PushPull>>;
+pub type HeadlightPin = Gpio0<Output<PushPull>>;
 pub type FrontLeftBlinkerPin = Gpio18<Output<PushPull>>;
 pub type FrontRightBlinkerPin = Gpio9<Output<PushPull>>;
-pub type SteeringPin = Gpio10<Output<PushPull>>;
-
+pub type SteeringPin = Gpio6<Output<PushPull>>;
 
 pub const SERVO_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer0;
 pub const LED_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer1;
@@ -80,12 +79,13 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
 
-    let steering_pin = io.pins.gpio10.into_push_pull_output();
+    let steering_pin = io.pins.gpio6.into_push_pull_output();
     let motor_pin = io.pins.gpio7.into_push_pull_output();
 
-    let headlight_pin = io.pins.gpio19.into_push_pull_output();
+    let headlight_pin = io.pins.gpio0.into_push_pull_output();
     let taillight_pin = io.pins.gpio3.into_push_pull_output();
     let brakelight_pin = io.pins.gpio2.into_push_pull_output();
+    let reverselight_pin = io.pins.gpio4.into_push_pull_output();
 
     let left_blinker_pin = io.pins.gpio5.into_push_pull_output();
     let right_blinker_pin = io.pins.gpio1.into_push_pull_output();
@@ -106,7 +106,7 @@ fn main() -> ! {
         .unwrap();
     let servo_timer = make_static!(servo_timer);
 
-    let mut motor_timer = ledc.get_timer::<LowSpeed>(SERVO_TIMER_NUMBER);
+    let mut motor_timer = ledc.get_timer::<LowSpeed>(MOTOR_TIMER_NUMBER );
     motor_timer
         .configure(timer::config::Config {
             duty: timer::config::Duty::Duty14Bit,
@@ -152,6 +152,9 @@ fn main() -> ! {
             pin_config: PinConfig::PushPull,
         })
         .unwrap();
+
+    let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
+
     let headlight_controller = HeadlightController::new(headlight_channel,taillight_pin);
 
     let steering_servo: &'static mut Servo<'_, SteeringPin, 600, 2415,14,50> = make_static!(Servo::new(steering_channel));
@@ -176,8 +179,9 @@ fn main() -> ! {
     
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
 
-    let command_channel: &CommandChannel = make_static!(PubSubChannel::new());
+    let command_channel: &MessageChannel = make_static!(PubSubChannel::new());
     let telemetry_channel: &PubSubChannel<NoopRawMutex, TelemetryMessage, MAX_MESSAGES, MAX_SUBS, MAX_PUBS> = make_static!(PubSubChannel::new());
+
 
     executor.run(|spawner| {
         spawner.spawn(receiver(esp_receiver,command_channel.publisher().unwrap())).unwrap();
@@ -187,7 +191,12 @@ fn main() -> ! {
         spawner.spawn(heartbeat(telemetry_channel.publisher().unwrap())).unwrap();
         spawner.spawn(blinker(spawner,command_channel.subscriber().unwrap(),left_blinker_pin,right_blinker_pin)).unwrap();
         spawner.spawn(light_controller(command_channel.subscriber().unwrap(),headlight_controller)).unwrap();
-        // spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(brakelight_controller(command_channel.subscriber().unwrap(),brakelight_pin)).unwrap();
+        spawner.spawn(reverselight_controller(command_channel.subscriber().unwrap(),reverselight_pin)).unwrap();
+        spawner.spawn(reverselight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(brakelight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap(),rtc)).unwrap();
+        spawner.spawn(blink_cancellation_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
         // spawner.spawn(test_motor(command_channel.publisher().unwrap())).unwrap();
     })
 }
@@ -202,12 +211,14 @@ async fn heartbeat(publisher: Publisher<'static, NoopRawMutex, TelemetryMessage,
 }
 
 #[embassy_executor::task]
-async fn steering(mut subscriber: CommandSubscriber, steering_servo: &'static mut Servo<'_, SteeringPin, 600, 2415, 14, 50>)-> ! {
+async fn steering(mut subscriber: MessageSubscriber, steering_servo: &'static mut Servo<'_, SteeringPin, 600, 2415, 14, 50>)-> ! {
+    steering_servo.set_percentage(50_u8); // center steering
     loop {
         match subscriber.next_message_pure().await {
-            ControlMessage::SteeringPosition(value) => {
+            Message::Control(ControlMessage::SteeringPosition(value)) => {
                 info!("Steering value: {}",value);
-                let value: u32 = (value.min(100).max(0)) as u32;
+                // assert values min -50 max 50
+                let value: u32 = ((value.min(12).max(-12)) as u32) + 50; // normalize to 0..100
                 steering_servo.set_percentage(value as u8)                
             },
             _ => {}
@@ -216,10 +227,10 @@ async fn steering(mut subscriber: CommandSubscriber, steering_servo: &'static mu
 }
 
 #[embassy_executor::task]
-async fn motor(mut subscriber: CommandSubscriber, motor_servo: &'static mut Servo<'_, MotorPin, 0, 16384, 14, MOTOR_FREQUENCY>)-> ! {
+async fn motor(mut subscriber: MessageSubscriber, motor_servo: &'static mut Servo<'_, MotorPin, 0, 16384, 14, MOTOR_FREQUENCY>)-> ! {
     loop {
         match subscriber.next_message_pure().await {
-            ControlMessage::MotorPower(value) => {
+            Message::Control(ControlMessage::MotorPower(value)) => {
                 info!("Motor value: {}",value);
                 let value: u32 = (value.min(99).max(0)) as u32;
                 motor_servo.set_percentage(value as u8)                
@@ -249,13 +260,13 @@ async fn telemetry_sender(mut esp_sender: EspNowSender<'static>, mut subscriber:
 }
 
 #[embassy_executor::task]
-async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: CommandPublisher)->! {
+async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessagePublisher)->! {
     info!("Starting receiver...");
     loop {
         let msg = esp_receiver.receive_async().await;
 
         let _sender = msg.info.src_address;
-        let msg = ControlMessage::from_slice(&msg.data);
+        let msg = Message::from_slice(&msg.data);
         println!("Reeived: {:?}",msg);
         match msg {
             Ok(msg) => {
@@ -270,38 +281,32 @@ async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: CommandP
     }
 }
 
-// #[embassy_executor::task]
-// async fn test_lights(publisher: CommandPublisher)->! {
-//     info!("Starting receiver...");
-//     loop {
-//         info!("High beam");
-//         publisher.publish(ControlMessage::HeadlightCommand(protocol::Lights::High)).await;
-//         Timer::after_millis(6000).await;
-//         info!("Low beam");
-//         publisher.publish(ControlMessage::HeadlightCommand(protocol::Lights::Low)).await;
-//         Timer::after_millis(6000).await;
-//         info!("Off");
-//         publisher.publish(ControlMessage::HeadlightCommand(protocol::Lights::Off)).await;
-//         Timer::after_millis(6000).await;
-//     }
-// }
+#[embassy_executor::task]
+async fn test_lights(publisher: MessagePublisher)->! {
+    info!("Starting test sequence...");
 
-// #[embassy_executor::task]
-// async fn test_motor(publisher: CommandPublisher)->! {
-//     info!("Starting receiver...");
-//     loop {
-//         info!("Motor off");
-//         publisher.publish(ControlMessage::MotorPower(0)).await;
-//         Timer::after_millis(10000).await;
-//         info!("Motor 2000");
-//         publisher.publish(ControlMessage::MotorPower(20)).await;
-//         Timer::after_millis(3000).await;
-//         info!("Motor 4000");
-//         publisher.publish(ControlMessage::MotorPower(40)).await;
-//         Timer::after_millis(3000).await;
-//         info!("Motor 6000");
-//         publisher.publish(ControlMessage::MotorPower(60)).await;
-//         Timer::after_millis(3000).await;
+    publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Alarm))).await;
+    Timer::after_millis(2500).await;
+    publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Off))).await;
 
-//     }
-// }
+    // publisher.publish(Message::Control(ControlMessage::ReverselightCommand(protocol::ReverseLights::On))).await;
+    // publisher.publish(Message::Control(ControlMessage::BrakelightCommand(protocol::Brakelights::On))).await;
+    // publisher.publish(Message::Control(ControlMessage::ReverselightCommand(protocol::ReverseLights::On))).await;
+
+    // publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Off))).await;
+    for _ in 0..5 {
+        info!("High beam");
+        publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::High))).await;
+        Timer::after_millis(200).await;
+        info!("Low beam");
+        publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::Low))).await;
+        Timer::after_millis(200).await;
+        info!("Off");
+        publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::Off))).await;
+        Timer::after_millis(200).await;
+    }
+    loop {
+        // just nothing
+        Timer::after_secs(100).await;
+    }
+}

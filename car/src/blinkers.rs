@@ -3,13 +3,13 @@ use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::Timer;
 use embedded_hal::digital::OutputPin;
-use protocol::{ControlMessage, BlinkerState};
+use protocol::{ControlMessage, BlinkerState, MessageSubscriber, Message};
 use static_cell::make_static;
 
-use crate::{CommandSubscriber, LeftBlinkerPin, RightBlinkerPin};
+use crate::{LeftBlinkerPin, RightBlinkerPin};
 
 #[embassy_executor::task]
-pub async fn blinker(spawner: Spawner, subscriber: CommandSubscriber, left_pin: LeftBlinkerPin, right_pin: RightBlinkerPin) {
+pub async fn blinker(spawner: Spawner, subscriber: MessageSubscriber, left_pin: LeftBlinkerPin, right_pin: RightBlinkerPin) {
     let signal: Signal<NoopRawMutex, BlinkerState> = Signal::new();
     let signal = make_static!(signal);
     spawner.spawn(blinker_controller(subscriber, signal)).unwrap();
@@ -17,10 +17,10 @@ pub async fn blinker(spawner: Spawner, subscriber: CommandSubscriber, left_pin: 
 }
 
 #[embassy_executor::task]
-async fn blinker_controller(mut subscriber: CommandSubscriber, signal: &'static Signal<NoopRawMutex, BlinkerState>)-> ! {
+async fn blinker_controller(mut subscriber: MessageSubscriber, signal: &'static Signal<NoopRawMutex, BlinkerState>)-> ! {
     loop {
         match subscriber.next_message_pure().await {
-            ControlMessage::BlinkerCommand(blinker) => {
+            Message::Control(ControlMessage::BlinkerCommand(blinker)) => {
                 match blinker {
                     // BlinkerState::Off => signal.reset(),
                     _ => signal.signal(blinker),

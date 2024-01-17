@@ -19,7 +19,7 @@ use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, BROADCAST_ADDRESS, 
 use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, gpio::{Input, PullUp, Gpio5, Gpio9, Gpio7, Gpio8}, Rtc};
 
 use log::info;
-use protocol::{ControlMessage, BlinkerState, CommandPublisher, Lights, CommandSubscriber, CommandChannel};
+use protocol::{ControlMessage, BlinkerState, Headlights, MessageChannel, MessagePublisher, Message, MessageSubscriber};
 
 use static_cell::make_static;
 
@@ -106,7 +106,7 @@ fn main() -> ! {
     let wifi = peripherals.WIFI;
     let esp_now = EspNow::new(&init, wifi).unwrap();
     hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
-    let command_channel: CommandChannel = PubSubChannel::new();
+    let command_channel: MessageChannel = PubSubChannel::new();
     let command_channel = make_static!(command_channel);
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
     let heartbeat_signal: &mut Signal<NoopRawMutex,u64> = make_static!(Signal::new());
@@ -166,7 +166,7 @@ fn main() -> ! {
 // }
 
 #[embassy_executor::task]
-async fn button_left(mut button_pin: LeftButtonPin, publisher: CommandPublisher) {
+async fn button_left(mut button_pin: LeftButtonPin, publisher: MessagePublisher) {
     let mut blinker_state  = BlinkerState::Off;
     loop {
         button_pin.wait_for_rising_edge().await.unwrap();
@@ -174,12 +174,12 @@ async fn button_left(mut button_pin: LeftButtonPin, publisher: CommandPublisher)
             BlinkerState::Left => BlinkerState::Off,
             _ => BlinkerState::Left,
         };
-        publisher.publish(ControlMessage::BlinkerCommand(blinker_state)).await;
+        publisher.publish(Message::Control(ControlMessage::BlinkerCommand(blinker_state))).await;
     }
 }
 
 #[embassy_executor::task]
-async fn button_right(mut button_pin: RightButtonPin, publisher: CommandPublisher) {
+async fn button_right(mut button_pin: RightButtonPin, publisher: MessagePublisher) {
     let mut blinker_state  = BlinkerState::Off;
     loop {
         button_pin.wait_for_rising_edge().await.unwrap();
@@ -187,28 +187,28 @@ async fn button_right(mut button_pin: RightButtonPin, publisher: CommandPublishe
             BlinkerState::Right => BlinkerState::Off,
             _ => BlinkerState::Right,
         };
-        publisher.publish(ControlMessage::BlinkerCommand(blinker_state)).await;
+        publisher.publish(Message::Control(ControlMessage::BlinkerCommand(blinker_state))).await;
         Timer::after_millis(100).await;
     }
 }
 
 #[embassy_executor::task]
-async fn button_top_left(mut button_pin: TopLeftButtonPin, publisher: CommandPublisher) {
-    let mut light_state: Lights = Lights::Off;
+async fn button_top_left(mut button_pin: TopLeftButtonPin, publisher: MessagePublisher) {
+    let mut light_state: Headlights = Headlights::Off;
     loop {
         button_pin.wait_for_rising_edge().await.unwrap();
         light_state = match light_state {
-            Lights::Low => Lights::High,
-            Lights::High => Lights::Off,
-            Lights::Off => Lights::Low,
+            Headlights::Low => Headlights::High,
+            Headlights::High => Headlights::Off,
+            Headlights::Off => Headlights::Low,
         };
-        publisher.publish(ControlMessage::HeadlightCommand(light_state)).await;
+        publisher.publish(Message::Control(ControlMessage::HeadlightCommand(light_state))).await;
         Timer::after_millis(100).await;
     }
 }
 
 #[embassy_executor::task]
-async fn button_top_right(mut button_pin: TopRightButtonPin, _publisher: CommandPublisher) {
+async fn button_top_right(mut button_pin: TopRightButtonPin, _publisher: MessagePublisher) {
     loop {
         button_pin.wait_for_rising_edge().await.unwrap();
         info!("No action");
@@ -217,7 +217,7 @@ async fn button_top_right(mut button_pin: TopRightButtonPin, _publisher: Command
 }
 
 #[embassy_executor::task]
-async fn sender( mut esp_sender: EspNowSender<'static>, mut subscriber: CommandSubscriber) {
+async fn sender( mut esp_sender: EspNowSender<'static>, mut subscriber: MessageSubscriber) {
     info!("Starting sender...");
     loop {
         let message = subscriber.next_message_pure().await;
