@@ -27,7 +27,7 @@ pub enum ProtocolError {
 }
 
 
-#[derive(Serialize,Deserialize,Clone,Debug,Copy)]
+#[derive(Serialize,Deserialize,Clone,Debug,Copy, PartialEq, Eq)]
 pub enum BlinkerState {
     Left,
     Right,
@@ -78,9 +78,16 @@ pub enum ControlMessage {
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
 pub enum TelemetryMessage {
-    Heartbeat
+    Heartbeat(u64, u64),
+    Blink(BlinkState),
 }
 
+#[derive(Serialize,Deserialize,Clone,Debug)]
+pub enum BlinkState {
+    LeftOn,
+    RightOn,
+    AllOff,
+}
 impl Message {
     pub fn to_bytes(&self)->Result<Vec<u8>,ProtocolError> {
         postcard::to_allocvec(self)

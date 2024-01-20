@@ -8,5 +8,5 @@ edition = "2021"
 [dependencies]
 postcard = { version = "1.0.8", default-features = false, features = ["postcard-derive", "alloc"] }
 serde = { version = "1.0.193", default-features = false, features = ["alloc", "serde_derive"] }
-hal = { package = "esp32c3-hal", version = "0.13.0", features=["embassy","async","embassy-time-timg0"] }
+#hal = { package = "esp32c3-hal", version = "0.13.0", features=["embassy","async","embassy-time-timg0"] }
 embassy-sync = "0.3.0"
