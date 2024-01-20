@@ -143,10 +143,9 @@ pub async fn brakelight_motor_monitor(mut subscriber: MessageSubscriber, publish
                 }
             }
             Either::Second(_) => {
-                info!("Timeout brakelight. On: {} elapsed: {} previous: {}", brakelight_on, rtc.get_time_ms() - last_update_time, last_motor_setting);
                 if brakelight_on {
                     let elapsed = rtc.get_time_ms() - last_update_time;
-                    info!("Timeout brakelight: elapsed: {}",elapsed);
+                    // info!("Timeout brakelight: elapsed: {}",elapsed);
 
                     if elapsed > BRAKELIGHT_TIMEOUT {
                         info!("Switch off brakelight");

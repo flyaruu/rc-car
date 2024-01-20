@@ -1195,7 +1195,6 @@ name = "protocol"
 version = "0.1.0"
 dependencies = [
  "embassy-sync 0.3.0",
- "esp32c3-hal",
  "postcard",
  "serde",
 ]
