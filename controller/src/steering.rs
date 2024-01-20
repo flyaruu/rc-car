@@ -20,16 +20,18 @@ pub async fn rotary_steering<A: InputPin + Wait, B: InputPin + Wait>(pin_a: A, p
         match direction {
             rotary_encoder_hal::Direction::Clockwise => {
                 count+=1;
-                sender.publish(Message::Control(ControlMessage::SteeringPosition(count))).await;
+                let cmd = Message::Control(ControlMessage::SteeringPosition(count));
+                info!("Sending steering command {:?}",cmd);
+                sender.publish(cmd).await;
             },
             rotary_encoder_hal::Direction::CounterClockwise => {
                 count-=1;
-                sender.publish(Message::Control(ControlMessage::SteeringPosition(count))).await;
+                let cmd = Message::Control(ControlMessage::SteeringPosition(count));
+                info!("Sending steering command {:?}",cmd);
+                sender.publish(cmd).await;
             },
             rotary_encoder_hal::Direction::None => (),
         }
-        println!("Count: {}",count);
-        // add slight delay?
     }
 }
     
@@ -48,13 +50,15 @@ pub async fn rotary_steering<A: InputPin + Wait, B: InputPin + Wait>(pin_a: A, p
                     if count < 50 {
                         count+=1;
                     }
-                    sender.publish(Message::Control(ControlMessage::MotorPower(count))).await;
+                    let cmd = Message::Control(ControlMessage::MotorPower(count));
+                    sender.publish(cmd).await;
                 },
                 rotary_encoder_hal::Direction::CounterClockwise => {
                     info!("ccw");
                     if count > -50 {
                         count-=1;
-                        sender.publish(Message::Control(ControlMessage::MotorPower(count))).await;
+                        let cmd = Message::Control(ControlMessage::MotorPower(count));
+                        sender.publish(cmd).await;
                     }
                 },
                 rotary_encoder_hal::Direction::None => (),

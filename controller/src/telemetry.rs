@@ -5,7 +5,7 @@ use embedded_hal::digital::OutputPin;
 use esp_wifi::esp_now::EspNowReceiver;
 use hal::{Rtc, gpio::{Gpio3, Output, PushPull}};
 use log::{info, error};
-use protocol::TelemetryMessage;
+use protocol::{Message, MessagePublisher, MessageSubscriber, TelemetryMessage};
 
 
 #[embassy_executor::task]
@@ -31,22 +31,41 @@ pub async fn connection_state(signal: &'static Signal<NoopRawMutex,u64>, rtc: &'
 }
 
 #[embassy_executor::task]
-pub async fn telemetry_receiver(mut esp_receiver: EspNowReceiver<'static>, rtc: &'static Rtc<'_>, signal: &'static Signal<NoopRawMutex,u64>) {
+pub async fn telemetry_receiver(mut subscriber: MessageSubscriber, rtc: &'static Rtc<'_>, signal: &'static Signal<NoopRawMutex,u64>) {
     info!("Starting receiver...");
     loop {
-        let msg = TelemetryMessage::from_slice(&esp_receiver.receive_async().await.data);
+        let msg = subscriber.next_message_pure().await;
         match msg {
-            Ok(msg) => {
-                match msg {
-                    TelemetryMessage::Heartbeat => {
+            Message::Control(_) => {},
+            Message::Telemetry(telemetry) => {
+                match telemetry {
+                    TelemetryMessage::Heartbeat(_, ts) => {
                         let now = rtc.get_time_ms();
                         signal.signal(now);
                     },
+                    _ => {}
                 }
-            },
-            Err(e) => {
-                error!("Telemetry error: {:?}",e)
             },
         }
     }
 }
+
+#[embassy_executor::task]
+pub async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessagePublisher)->! {
+    info!("Starting receiver...");
+    loop {
+        let msg = esp_receiver.receive_async().await;
+        let _sender = msg.info.src_address;
+        let msg = Message::from_slice(&msg.data);
+        info!("ESPNOW Received: {:?}",msg);
+        match msg {
+            Ok(msg) => {
+                publisher.publish(msg).await;
+            },
+            Err(e) => {
+                error!("Problem: {:?}",e);
+            },
+        }
+    }
+}
+

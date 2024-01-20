@@ -34,7 +34,7 @@ mod telemetry;
 use esp_backtrace as _;
 
 
-use crate::{telemetry::{connection_state, telemetry_receiver}, steering::{rotary_steering_x, rotary_motor_y}};
+use crate::{telemetry::{connection_state, receiver, telemetry_receiver}, steering::{rotary_steering_x, rotary_motor_y}};
 
 
 #[global_allocator]
@@ -66,14 +66,6 @@ fn main() -> ! {
     log::info!("Logger is setup....");
 
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
-
-
-
-
-
-
-
-    
     let executor = make_static!(Executor::new());
     let timer_group = TimerGroup::new(peripherals.TIMG0, &clocks);    
 
@@ -105,19 +97,20 @@ fn main() -> ! {
     .unwrap();
     let wifi = peripherals.WIFI;
     let esp_now = EspNow::new(&init, wifi).unwrap();
+
     hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
     let command_channel: MessageChannel = PubSubChannel::new();
     let command_channel = make_static!(command_channel);
-    let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
+    let (esp_manager, esp_sender, esp_receiver) = esp_now.split();
     let heartbeat_signal: &mut Signal<NoopRawMutex,u64> = make_static!(Signal::new());
 
     // let left_button_signal: &mut Signal<NoopRawMutex, ButtonState> = make_static!(Signal::new());
     // let right_button_signal: &mut Signal<NoopRawMutex, ButtonState> = make_static!(Signal::new());
 
-
     executor.run(|spawner| {
         spawner.spawn(sender(esp_sender,command_channel.subscriber().unwrap())).unwrap();
-        spawner.spawn(telemetry_receiver(esp_receiver,rtc,heartbeat_signal)).unwrap();
+        spawner.spawn(telemetry_receiver(command_channel.subscriber().unwrap(),rtc,heartbeat_signal)).unwrap();
+        spawner.spawn(receiver(esp_receiver,command_channel.publisher().unwrap())).unwrap();
 
         spawner.spawn(connection_state(heartbeat_signal,rtc,status_pin)).unwrap();
         spawner.spawn(rotary_steering_x(rotary_pin_x_a,rotary_pin_x_b,command_channel.publisher().unwrap())).unwrap();
@@ -136,34 +129,7 @@ fn main() -> ! {
 }
 
 
-// #[embassy_executor::task]
-// async fn button_controller(left_button_signal: &'static mut Signal<NoopRawMutex,ButtonState>, right_button_signal: &'static mut Signal<NoopRawMutex,ButtonState>, mut publisher: CommandPublisher) {
-//     let mut blinker_state = BlinkerState::Off;
-//     loop {
-//         let result = select(left_button_signal.wait(), right_button_signal.wait()).await;
 
-//         match result {
-//             Either::First(button_state) => {
-//                 if button_state == ButtonState::Down {
-//                     match blinker_state {
-//                         BlinkerState::Left => { // left is blinking, left button was pressed, so switch off
-//                             blinker_state = BlinkerState::Off;
-//                             publisher.publish(ControlMessage::BlinkerCommand(blinker_state)).await;
-//                         },
-//                         _ => {
-//                             blinker_state = BlinkerState::Left;
-//                             publisher.publish(ControlMessage::BlinkerCommand(blinker_state)).await;
-    
-//                         },
-//                     }
-//                 }
-//             },
-//             Either::Second(right_button) => {
-                
-//             },
-//         }
-//     }    
-// }
 
 #[embassy_executor::task]
 async fn button_left(mut button_pin: LeftButtonPin, publisher: MessagePublisher) {
@@ -174,6 +140,7 @@ async fn button_left(mut button_pin: LeftButtonPin, publisher: MessagePublisher)
             BlinkerState::Left => BlinkerState::Off,
             _ => BlinkerState::Left,
         };
+        info!("Sending left blinker command");
         publisher.publish(Message::Control(ControlMessage::BlinkerCommand(blinker_state))).await;
     }
 }
@@ -187,6 +154,8 @@ async fn button_right(mut button_pin: RightButtonPin, publisher: MessagePublishe
             BlinkerState::Right => BlinkerState::Off,
             _ => BlinkerState::Right,
         };
+        info!("Sending right blinker command");
+
         publisher.publish(Message::Control(ControlMessage::BlinkerCommand(blinker_state))).await;
         Timer::after_millis(100).await;
     }
@@ -202,6 +171,7 @@ async fn button_top_left(mut button_pin: TopLeftButtonPin, publisher: MessagePub
             Headlights::High => Headlights::Off,
             Headlights::Off => Headlights::Low,
         };
+        info!("Sending headlight command: {:?}",light_state);
         publisher.publish(Message::Control(ControlMessage::HeadlightCommand(light_state))).await;
         Timer::after_millis(100).await;
     }
@@ -221,6 +191,10 @@ async fn sender( mut esp_sender: EspNowSender<'static>, mut subscriber: MessageS
     info!("Starting sender...");
     loop {
         let message = subscriber.next_message_pure().await;
-        esp_sender.send_async(&BROADCAST_ADDRESS, &message.to_bytes().unwrap()).await.unwrap();
+        match message {
+            Message::Control(_) => esp_sender.send_async(&BROADCAST_ADDRESS, &message.to_bytes().unwrap()).await.unwrap(),
+            Message::Telemetry(_) => {},
+        }
+        
     }
 }
