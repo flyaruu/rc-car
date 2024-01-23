@@ -8,6 +8,7 @@ use core::mem::MaybeUninit;
 use embassy_executor::Executor;
 
 
+use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal, pubsub::PubSubChannel};
 use embassy_time::Timer;
 
@@ -62,7 +63,7 @@ fn main() -> ! {
     // To change the log_level change the env section in .cargo/config.toml
     // or remove it and set ESP_LOGLEVEL manually before running cargo run
     // this requires a clean rebuild because of https://github.com/rust-lang/cargo/issues/10358
-    esp_println::logger::init_logger_from_env();
+    esp_println::logger::init_logger(log::LevelFilter::Error);
     log::info!("Logger is setup....");
 
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
@@ -101,63 +102,45 @@ fn main() -> ! {
     hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
     let command_channel: MessageChannel = PubSubChannel::new();
     let command_channel = make_static!(command_channel);
-    let (esp_manager, esp_sender, esp_receiver) = esp_now.split();
+    let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
     let heartbeat_signal: &mut Signal<NoopRawMutex,u64> = make_static!(Signal::new());
-
-    // let left_button_signal: &mut Signal<NoopRawMutex, ButtonState> = make_static!(Signal::new());
-    // let right_button_signal: &mut Signal<NoopRawMutex, ButtonState> = make_static!(Signal::new());
 
     executor.run(|spawner| {
         spawner.spawn(sender(esp_sender,command_channel.subscriber().unwrap())).unwrap();
         spawner.spawn(telemetry_receiver(command_channel.subscriber().unwrap(),rtc,heartbeat_signal)).unwrap();
         spawner.spawn(receiver(esp_receiver,command_channel.publisher().unwrap())).unwrap();
-
         spawner.spawn(connection_state(heartbeat_signal,rtc,status_pin)).unwrap();
         spawner.spawn(rotary_steering_x(rotary_pin_x_a,rotary_pin_x_b,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(rotary_motor_y(rotary_pin_y_a,rotary_pin_y_b,command_channel.publisher().unwrap())).unwrap();
-
-        
-        // spawner.spawn(rotary_y(rotary_pin_y_a,rotary_pin_y_b,command_channel.sender())).unwrap();
-        spawner.spawn(button_left(button_pin_x,command_channel.publisher().unwrap())).unwrap();
-        spawner.spawn(button_right(button_pin_y,command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(indicator_buttons(button_pin_x,button_pin_y,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(button_top_left(button_pin_top_left,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(button_top_right(button_pin_top_right,command_channel.publisher().unwrap())).unwrap();
-        // spawner.spawn(debug_command(command_channel.receiver())).unwrap();
-        // spawner.spawn(blinker_test(command_channel.publisher().unwrap())).unwrap();
 
     })
 }
 
 
-
-
 #[embassy_executor::task]
-async fn button_left(mut button_pin: LeftButtonPin, publisher: MessagePublisher) {
+async fn indicator_buttons(mut left_button_pin: LeftButtonPin, mut right_button_pin: RightButtonPin, publisher: MessagePublisher) {
     let mut blinker_state  = BlinkerState::Off;
     loop {
-        button_pin.wait_for_rising_edge().await.unwrap();
-        blinker_state = match blinker_state {
-            BlinkerState::Left => BlinkerState::Off,
-            _ => BlinkerState::Left,
-        };
-        info!("Sending left blinker command");
+        match select(left_button_pin.wait_for_rising_edge(),right_button_pin.wait_for_rising_edge()).await {
+            Either::First(_)=>{
+                blinker_state = match blinker_state {
+                    BlinkerState::Left => BlinkerState::Off,
+                    _ => BlinkerState::Left,
+                };
+            },
+            Either::Second(_)=>{
+                blinker_state = match blinker_state {
+                    BlinkerState::Right => BlinkerState::Off,
+                    _ => BlinkerState::Right,
+                };
+        
+            }
+        }
         publisher.publish(Message::Control(ControlMessage::BlinkerCommand(blinker_state))).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn button_right(mut button_pin: RightButtonPin, publisher: MessagePublisher) {
-    let mut blinker_state  = BlinkerState::Off;
-    loop {
-        button_pin.wait_for_rising_edge().await.unwrap();
-        blinker_state = match blinker_state {
-            BlinkerState::Right => BlinkerState::Off,
-            _ => BlinkerState::Right,
-        };
-        info!("Sending right blinker command");
-
-        publisher.publish(Message::Control(ControlMessage::BlinkerCommand(blinker_state))).await;
-        Timer::after_millis(100).await;
+        Timer::after_millis(200).await;
     }
 }
 
@@ -178,10 +161,12 @@ async fn button_top_left(mut button_pin: TopLeftButtonPin, publisher: MessagePub
 }
 
 #[embassy_executor::task]
-async fn button_top_right(mut button_pin: TopRightButtonPin, _publisher: MessagePublisher) {
+async fn button_top_right(mut button_pin: TopRightButtonPin, publisher: MessagePublisher) {
     loop {
         button_pin.wait_for_rising_edge().await.unwrap();
-        info!("No action");
+        info!("Recalibrating motor");
+        publisher.publish(Message::Control(ControlMessage::RecalibrateMotor)).await;
+        
         Timer::after_millis(100).await;
     }
 }

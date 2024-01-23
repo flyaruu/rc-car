@@ -39,10 +39,13 @@ pub async fn telemetry_receiver(mut subscriber: MessageSubscriber, rtc: &'static
             Message::Control(_) => {},
             Message::Telemetry(telemetry) => {
                 match telemetry {
-                    TelemetryMessage::Heartbeat(_, ts) => {
+                    TelemetryMessage::Heartbeat(_) => {
                         let now = rtc.get_time_ms();
                         signal.signal(now);
                     },
+                    TelemetryMessage::LogMessage(msg) => {
+                        info!("Received message: {}",msg);
+                    }
                     _ => {}
                 }
             },
@@ -52,12 +55,10 @@ pub async fn telemetry_receiver(mut subscriber: MessageSubscriber, rtc: &'static
 
 #[embassy_executor::task]
 pub async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessagePublisher)->! {
-    info!("Starting receiver...");
     loop {
         let msg = esp_receiver.receive_async().await;
         let _sender = msg.info.src_address;
         let msg = Message::from_slice(&msg.data);
-        info!("ESPNOW Received: {:?}",msg);
         match msg {
             Ok(msg) => {
                 publisher.publish(msg).await;
@@ -68,4 +69,3 @@ pub async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: Mess
         }
     }
 }
-

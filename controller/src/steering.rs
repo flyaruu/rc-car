@@ -5,7 +5,7 @@ use embedded_hal_async::digital::Wait;
 use esp_println::println;
 use hal::gpio::{Gpio6, Input, PullUp, Gpio4, Gpio19, Gpio18};
 use log::info;
-use protocol::{ControlMessage, MessagePublisher, Message};
+use protocol::{ControlMessage, Message, MessagePublisher, MOTOR_CENTER_POSITION};
 use rotary_encoder_hal::Rotary;
 
 
@@ -37,7 +37,7 @@ pub async fn rotary_steering<A: InputPin + Wait, B: InputPin + Wait>(pin_a: A, p
     
     pub async fn rotary_motor<A: InputPin + Wait, B: InputPin + Wait>(pin_a: A, pin_b: B, sender: MessagePublisher)->! {
         let mut rotary = Rotary::new(pin_a, pin_b);
-        let mut count = 0_i32;
+        let mut count = MOTOR_CENTER_POSITION;
         info!("Motor started");
         loop {
             let (pin_a,pin_b) = rotary.pins();
