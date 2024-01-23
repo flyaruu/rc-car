@@ -29,12 +29,13 @@ impl <'a, P: OutputPin,const MIN_DUTY: u32, const MAX_DUTY: u32, const BITS: u32
         self.channel.set_duty_hw(abs_duty as u32);
     }
 
-    pub fn set_percentage(&mut self, percentage: u8) {
+    pub fn set_percentage(&mut self, percentage: u8)->u32 {
         let range: u32 = MAX_DUTY - MIN_DUTY;
         let abs_duty = MIN_DUTY + (range * percentage as u32 / 100); // in micros
         info!("Duty abs: {} duty space: {}",abs_duty, Self::DUTY_SPACE);
         let duty = abs_duty * Self::DUTY_SPACE / Self::CYCLE_TIME;
         info!("Setting duty to: {}",duty);
         self.channel.set_duty_hw(duty);
+        return duty
     }
 }

@@ -64,7 +64,7 @@ pub async fn reverselight_motor_monitor(mut subscriber: MessageSubscriber, publi
         match subscriber.next_message_pure().await {
 
             Message::Control(ControlMessage::MotorPower(value)) => {
-                if value < 0 {
+                if value < 30 {
                     publisher.publish(Message::Control(ControlMessage::ReverselightCommand(ReverseLights::On))).await
                 } else {
                     publisher.publish(Message::Control(ControlMessage::ReverselightCommand(ReverseLights::Off))).await
