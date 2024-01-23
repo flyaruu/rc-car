@@ -16,10 +16,10 @@ use embedded_hal_async::digital::Wait;
 use esp_backtrace as _;
 
 use esp_println::println;
-use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, BROADCAST_ADDRESS, EspNowSender}};
+use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, EspNowReceiver, EspNowSender, BROADCAST_ADDRESS}};
 use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, gpio::{Input, PullUp, Gpio5, Gpio9, Gpio7, Gpio8}, Rtc};
 
-use log::info;
+use log::{error, info};
 use protocol::{ControlMessage, BlinkerState, Headlights, MessageChannel, MessagePublisher, Message, MessageSubscriber};
 
 use static_cell::make_static;
@@ -35,7 +35,7 @@ mod telemetry;
 use esp_backtrace as _;
 
 
-use crate::{telemetry::{connection_state, receiver, telemetry_receiver}, steering::{rotary_steering_x, rotary_motor_y}};
+use crate::{telemetry::{connection_state, telemetry_receiver}, steering::{rotary_steering_x, rotary_motor_y}};
 
 
 #[global_allocator]
@@ -166,7 +166,6 @@ async fn button_top_right(mut button_pin: TopRightButtonPin, publisher: MessageP
         button_pin.wait_for_rising_edge().await.unwrap();
         info!("Recalibrating motor");
         publisher.publish(Message::Control(ControlMessage::RecalibrateMotor)).await;
-        
         Timer::after_millis(100).await;
     }
 }
@@ -180,6 +179,23 @@ async fn sender( mut esp_sender: EspNowSender<'static>, mut subscriber: MessageS
             Message::Control(_) => esp_sender.send_async(&BROADCAST_ADDRESS, &message.to_bytes().unwrap()).await.unwrap(),
             Message::Telemetry(_) => {},
         }
-        
+    }
+}
+
+
+#[embassy_executor::task]
+pub async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessagePublisher)->! {
+    loop {
+        let msg = esp_receiver.receive_async().await;
+        let _sender = msg.info.src_address;
+        let msg = Message::from_slice(&msg.data);
+        match msg {
+            Ok(msg) => {
+                publisher.publish(msg).await;
+            },
+            Err(e) => {
+                error!("Problem: {:?}",e);
+            },
+        }
     }
 }

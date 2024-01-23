@@ -52,20 +52,3 @@ pub async fn telemetry_receiver(mut subscriber: MessageSubscriber, rtc: &'static
         }
     }
 }
-
-#[embassy_executor::task]
-pub async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessagePublisher)->! {
-    loop {
-        let msg = esp_receiver.receive_async().await;
-        let _sender = msg.info.src_address;
-        let msg = Message::from_slice(&msg.data);
-        match msg {
-            Ok(msg) => {
-                publisher.publish(msg).await;
-            },
-            Err(e) => {
-                error!("Problem: {:?}",e);
-            },
-        }
-    }
-}
