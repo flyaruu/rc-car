@@ -17,7 +17,7 @@ pub type MessagePublisher = Publisher<'static, NoopRawMutex, Message, MAX_MESSAG
 
 pub const MAX_PUBS: usize = 10;
 pub const MAX_SUBS: usize = 10;
-pub const MAX_MESSAGES: usize = 10;
+pub const MAX_MESSAGES: usize = 100;
 
 
 #[derive(Clone, Debug)]
@@ -74,12 +74,15 @@ pub enum ControlMessage {
     HeadlightCommand(Headlights),
     BrakelightCommand(Brakelights),
     ReverselightCommand(ReverseLights),
+    RecalibrateMotor,
 }
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
 pub enum TelemetryMessage {
     Heartbeat(u64, u64),
     Blink(BlinkState),
+    MotorSetting(u32),
+    LogMessage(String),
 }
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
