@@ -6,12 +6,10 @@
 extern crate alloc;
 use core::mem::MaybeUninit;
 
-use alloc::format;
 use embassy_executor::Executor;
-use embassy_sync::{pubsub::{PubSubChannel, Subscriber, Publisher}, blocking_mutex::raw::NoopRawMutex};
+use embassy_sync::{pubsub::{PubSubChannel, Subscriber}, blocking_mutex::raw::NoopRawMutex};
 use embassy_time::Timer;
 use esp_backtrace as _;
-use esp_println::println;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, EspNowReceiver, EspNowSender, BROADCAST_ADDRESS}};
 use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::{self, config::PinConfig}}, gpio::{PushPull, Output, Gpio3, Gpio5, Gpio2, Gpio4, Gpio9, Gpio18, Gpio7, Gpio1, Gpio6, Gpio0}, Rtc};
 
@@ -21,7 +19,7 @@ use static_cell::make_static;
 
 use esp_backtrace as _;
 
-use crate::{servo::Servo, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor, blink_cancellation_monitor}, blinkers::blinker};
+use crate::{servo::Servo, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, blinkers::blinker};
 
 mod servo;
 mod blinkers;
@@ -75,13 +73,8 @@ fn main() -> ! {
     // let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
     let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
 
-    // setup logger
-    // To change the log_level change the env section in .cargo/config.toml
-    // or remove it and set ESP_LOGLEVEL manually before running cargo run
-    // this requires a clean rebuild because of https://github.com/rust-lang/cargo/issues/10358
-    esp_println::logger::init_logger_from_env();
+    esp_println::logger::init_logger(log::LevelFilter::Error);
     log::info!("Logger is setup");
-
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
 
     let steering_pin = io.pins.gpio6.into_push_pull_output();
@@ -193,14 +186,14 @@ fn main() -> ! {
         spawner.spawn(steering(command_channel.subscriber().unwrap(),steering_servo)).unwrap();
         spawner.spawn(motor(command_channel.subscriber().unwrap(),motor_servo,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(sender(esp_sender, command_channel.subscriber().unwrap())).unwrap();
-        // spawner.spawn(heartbeat(command_channel.publisher().unwrap(), rtc)).unwrap();
+        spawner.spawn(heartbeat(command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(blinker(spawner,command_channel.subscriber().unwrap(), command_channel.publisher().unwrap(),left_blinker_pin,right_blinker_pin)).unwrap();
         spawner.spawn(light_controller(command_channel.subscriber().unwrap(),headlight_controller)).unwrap();
         spawner.spawn(brakelight_controller(command_channel.subscriber().unwrap(),brakelight_pin)).unwrap();
         spawner.spawn(reverselight_controller(command_channel.subscriber().unwrap(),reverselight_pin)).unwrap();
         spawner.spawn(reverselight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(brakelight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap(),rtc)).unwrap();
-        spawner.spawn(blink_cancellation_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
+        // spawner.spawn(blink_cancellation_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
         // spawner.spawn(test_motor(command_channel.publisher().unwrap())).unwrap();
     })
@@ -208,11 +201,10 @@ fn main() -> ! {
 
 
 #[embassy_executor::task]
-async fn heartbeat(publisher: MessagePublisher, rtc: &'static Rtc<'static>)->! {
+async fn heartbeat(publisher: MessagePublisher)->! {
     let mut heartbeat_count = 0_u64;
     loop {
-        let heartbeat = Message::Telemetry(TelemetryMessage::Heartbeat(heartbeat_count, rtc.get_time_us()));
-        info!("Sending heartbeat: {:?}", heartbeat);
+        let heartbeat = Message::Telemetry(TelemetryMessage::Heartbeat(heartbeat_count));
         publisher.publish(heartbeat).await;
         heartbeat_count+=1;
         Timer::after_secs(1).await;
@@ -245,8 +237,6 @@ async fn motor(mut subscriber: MessageSubscriber, motor_servo: &'static mut Moto
                 let v: u8 = (value + 50) as u8; 
                 let duty = motor_servo.set_percentage(v);
                 info!("Setting motor percentage: {}. Duty:",v);
-                let msg = format!("Setting motor to percentage: {}: {} duty: {}", value, v, duty);
-                publisher.publish(Message::Telemetry(TelemetryMessage::LogMessage(msg))).await;
                 publisher.publish(Message::Telemetry(TelemetryMessage::MotorSetting(duty))).await;
             },
             Message::Control(ControlMessage::RecalibrateMotor) => {
@@ -303,7 +293,7 @@ async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessageP
 
         let _sender = msg.info.src_address;
         let msg = Message::from_slice(&msg.data);
-        println!("ESPNOW Reeived: {:?}",msg);
+        info!("ESPNOW Reeived: {:?}",msg);
         match msg {
             Ok(msg) => {
                 publisher.publish(msg).await;
@@ -319,27 +309,27 @@ async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessageP
 async fn test_lights(publisher: MessagePublisher)->! {
     info!("Starting test sequence...");
 
-    // publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Alarm))).await;
-    // Timer::after_millis(2500).await;
-    // publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Off))).await;
+    publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Alarm))).await;
+    Timer::after_millis(2500).await;
+    publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Off))).await;
 
-    // publisher.publish(Message::Control(ControlMessage::ReverselightCommand(protocol::ReverseLights::On))).await;
-    // publisher.publish(Message::Control(ControlMessage::BrakelightCommand(protocol::Brakelights::On))).await;
-    // publisher.publish(Message::Control(ControlMessage::ReverselightCommand(protocol::ReverseLights::On))).await;
+    publisher.publish(Message::Control(ControlMessage::ReverselightCommand(protocol::ReverseLights::On))).await;
+    publisher.publish(Message::Control(ControlMessage::BrakelightCommand(protocol::Brakelights::On))).await;
+    publisher.publish(Message::Control(ControlMessage::ReverselightCommand(protocol::ReverseLights::On))).await;
 
-    // publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Off))).await;
+    publisher.publish(Message::Control(ControlMessage::BlinkerCommand(protocol::BlinkerState::Off))).await;
 
-    // for _ in 0..5 {
-    //     info!("High beam");
-    //     publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::High))).await;
-    //     Timer::after_millis(200).await;
-    //     info!("Low beam");
-    //     publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::Low))).await;
-    //     Timer::after_millis(200).await;
-    //     info!("Off");
-    //     publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::Off))).await;
-    //     Timer::after_millis(200).await;
-    // }
+    for _ in 0..5 {
+        info!("High beam");
+        publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::High))).await;
+        Timer::after_millis(200).await;
+        info!("Low beam");
+        publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::Low))).await;
+        Timer::after_millis(200).await;
+        info!("Off");
+        publisher.publish(Message::Control(ControlMessage::HeadlightCommand(protocol::Headlights::Off))).await;
+        Timer::after_millis(200).await;
+    }
     loop {
         // just nothing
         Timer::after_secs(100).await;

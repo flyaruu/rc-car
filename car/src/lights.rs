@@ -7,6 +7,7 @@ use hal::prelude::_embedded_hal_digital_v2_OutputPin;
 use hal::ledc::{LowSpeed, channel::ChannelIFace};
 use log::info;
 use protocol::BlinkerState;
+use protocol::MOTOR_CENTER_POSITION;
 use protocol::{ControlMessage, Headlights, MessageSubscriber, Message, MessagePublisher, ReverseLights};
 
 use crate::{TailLightPin, HeadlightPin, BrakeLightPin, ReverseLightPin};
@@ -64,7 +65,7 @@ pub async fn reverselight_motor_monitor(mut subscriber: MessageSubscriber, publi
         match subscriber.next_message_pure().await {
 
             Message::Control(ControlMessage::MotorPower(value)) => {
-                if value < 30 {
+                if value < MOTOR_CENTER_POSITION {
                     publisher.publish(Message::Control(ControlMessage::ReverselightCommand(ReverseLights::On))).await
                 } else {
                     publisher.publish(Message::Control(ControlMessage::ReverselightCommand(ReverseLights::Off))).await
