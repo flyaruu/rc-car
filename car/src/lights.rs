@@ -6,11 +6,13 @@ use hal::gpio::OutputPin;
 use hal::prelude::_embedded_hal_digital_v2_OutputPin;
 use hal::ledc::{LowSpeed, channel::ChannelIFace};
 use log::info;
-use protocol::BlinkerState;
 use protocol::MOTOR_CENTER_POSITION;
 use protocol::{ControlMessage, Headlights, MessageSubscriber, Message, MessagePublisher, ReverseLights};
 
-use crate::{TailLightPin, HeadlightPin, BrakeLightPin, ReverseLightPin};
+use crate::types::BrakeLightPin;
+use crate::types::HeadlightPin;
+use crate::types::ReverseLightPin;
+use crate::types::TailLightPin;
 
 pub struct HeadlightController<'a, HP: OutputPin, TP: OutputPin> {
     channel: hal::ledc::channel::Channel<'a,LowSpeed,HP>,
@@ -75,42 +77,6 @@ pub async fn reverselight_motor_monitor(mut subscriber: MessageSubscriber, publi
         }
     }
 }
-
-#[embassy_executor::task]
-pub async fn blink_cancellation_monitor(mut subscriber: MessageSubscriber, publisher: MessagePublisher)-> ! {
-    let mut steering_position = 0_i32;
-    let mut blinker_state = BlinkerState::Off;
-    loop {
-        match subscriber.next_message_pure().await {
-
-            Message::Control(ControlMessage::SteeringPosition(value)) => {
-                match blinker_state {
-                    BlinkerState::Left => {
-                        if value > steering_position {
-                            publisher.publish(Message::Control(ControlMessage::BlinkerCommand(BlinkerState::Off))).await
-                        }
-                    },
-                    BlinkerState::Right => {
-                        if value < steering_position {
-                            publisher.publish(Message::Control(ControlMessage::BlinkerCommand(BlinkerState::Off))).await
-                        }
-
-                    },
-                    BlinkerState::Off => {},
-                    BlinkerState::Alarm => {},
-                }
-                steering_position = value;
-            },
-            Message::Control(ControlMessage::BlinkerCommand(blinker)) => {
-                blinker_state = blinker;
-
-            },
-
-            _ => {},
-        }
-    }
-}
-
 
 #[embassy_executor::task]
 pub async fn brakelight_motor_monitor(mut subscriber: MessageSubscriber, publisher: MessagePublisher, rtc: &'static Rtc<'static>)-> ! {

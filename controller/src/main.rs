@@ -16,26 +16,23 @@ use embedded_hal_async::digital::Wait;
 use esp_backtrace as _;
 
 use esp_println::println;
-use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, EspNowReceiver, EspNowSender, BROADCAST_ADDRESS}};
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, gpio::{Input, PullUp, Gpio5, Gpio9, Gpio7, Gpio8}, Rtc};
+use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
+use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, Rtc};
 
-use log::{error, info};
-use protocol::{ControlMessage, BlinkerState, Headlights, MessageChannel, MessagePublisher, Message, MessageSubscriber};
+use log::info;
+use protocol::{ControlMessage, BlinkerState, Headlights, MessageChannel, MessagePublisher, Message};
 
 use static_cell::make_static;
 
-type LeftButtonPin = Gpio5<Input<PullUp>>;
-type RightButtonPin = Gpio9<Input<PullUp>>;
-type TopLeftButtonPin = Gpio7<Input<PullUp>>;
-type TopRightButtonPin = Gpio8<Input<PullUp>>;
-
 mod steering;
 mod telemetry;
-
+mod net;
+mod types;
 use esp_backtrace as _;
+use types::{LeftButtonPin, RightButtonPin, TopLeftButtonPin, TopRightButtonPin};
 
 
-use crate::{telemetry::{connection_state, telemetry_receiver}, steering::{rotary_steering_x, rotary_motor_y}};
+use crate::{net::{receiver, sender}, steering::{rotary_steering, rotary_motor}, telemetry::{connection_state, telemetry_receiver}};
 
 
 #[global_allocator]
@@ -107,11 +104,11 @@ fn main() -> ! {
 
     executor.run(|spawner| {
         spawner.spawn(sender(esp_sender,command_channel.subscriber().unwrap())).unwrap();
-        spawner.spawn(telemetry_receiver(command_channel.subscriber().unwrap(),rtc,heartbeat_signal)).unwrap();
         spawner.spawn(receiver(esp_receiver,command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(telemetry_receiver(command_channel.subscriber().unwrap(),rtc,heartbeat_signal)).unwrap();
         spawner.spawn(connection_state(heartbeat_signal,rtc,status_pin)).unwrap();
-        spawner.spawn(rotary_steering_x(rotary_pin_x_a,rotary_pin_x_b,command_channel.publisher().unwrap())).unwrap();
-        spawner.spawn(rotary_motor_y(rotary_pin_y_a,rotary_pin_y_b,command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(rotary_steering(rotary_pin_x_a,rotary_pin_x_b,command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(rotary_motor(rotary_pin_y_a,rotary_pin_y_b,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(indicator_buttons(button_pin_x,button_pin_y,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(button_top_left(button_pin_top_left,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(button_top_right(button_pin_top_right,command_channel.publisher().unwrap())).unwrap();
@@ -167,35 +164,5 @@ async fn button_top_right(mut button_pin: TopRightButtonPin, publisher: MessageP
         info!("Recalibrating motor");
         publisher.publish(Message::Control(ControlMessage::RecalibrateMotor)).await;
         Timer::after_millis(100).await;
-    }
-}
-
-#[embassy_executor::task]
-async fn sender( mut esp_sender: EspNowSender<'static>, mut subscriber: MessageSubscriber) {
-    info!("Starting sender...");
-    loop {
-        let message = subscriber.next_message_pure().await;
-        match message {
-            Message::Control(_) => esp_sender.send_async(&BROADCAST_ADDRESS, &message.to_bytes().unwrap()).await.unwrap(),
-            Message::Telemetry(_) => {},
-        }
-    }
-}
-
-
-#[embassy_executor::task]
-pub async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessagePublisher)->! {
-    loop {
-        let msg = esp_receiver.receive_async().await;
-        let _sender = msg.info.src_address;
-        let msg = Message::from_slice(&msg.data);
-        match msg {
-            Ok(msg) => {
-                publisher.publish(msg).await;
-            },
-            Err(e) => {
-                error!("Problem: {:?}",e);
-            },
-        }
     }
 }

@@ -2,10 +2,10 @@ use embassy_futures::select::{select, self};
 use embassy_sync::{signal::Signal, blocking_mutex::raw::NoopRawMutex};
 use embassy_time::Timer;
 use embedded_hal::digital::OutputPin;
-use esp_wifi::esp_now::EspNowReceiver;
+
 use hal::{Rtc, gpio::{Gpio3, Output, PushPull}};
-use log::{info, error};
-use protocol::{Message, MessagePublisher, MessageSubscriber, TelemetryMessage};
+use log::info;
+use protocol::{Message, MessageSubscriber, TelemetryMessage};
 
 
 #[embassy_executor::task]

@@ -6,8 +6,8 @@ use embedded_hal::digital::OutputPin;
 use log::info;
 use protocol::{BlinkState, BlinkerState, ControlMessage, Message, MessagePublisher, MessageSubscriber, TelemetryMessage};
 
+use crate::types::{LeftBlinkerPin, RightBlinkerPin};
 
-use crate::{LeftBlinkerPin, RightBlinkerPin};
 
 #[embassy_executor::task]
 pub async fn blinker(spawner: Spawner, subscriber: MessageSubscriber, publisher: MessagePublisher, left_pin: LeftBlinkerPin, right_pin: RightBlinkerPin) {
@@ -16,12 +16,12 @@ pub async fn blinker(spawner: Spawner, subscriber: MessageSubscriber, publisher:
 
 #[embassy_executor::task]
 async fn blinker_controller(mut subscriber: MessageSubscriber,  mut left_pin: LeftBlinkerPin, mut right_pin: RightBlinkerPin, mut publisher: MessagePublisher)-> ! {
-    let mut state = BlinkerState::Off;
+    // let mut state = BlinkerState::Off;
     let mut blink_state = false;
     loop {
         match subscriber.next_message_pure().await {
             Message::Control(ControlMessage::BlinkerCommand(blinker)) => {
-                state = blinker;
+                // state = blinker;
                 info!("Blinker comman received: {:?}",blinker);
                 match blinker {
                     BlinkerState::Off => {
@@ -36,9 +36,9 @@ async fn blinker_controller(mut subscriber: MessageSubscriber,  mut left_pin: Le
                                 info!("Blinker loop interrupted with command: {:?}",command);
                                 match command {
                                     Message::Control(ControlMessage::BlinkerCommand(blinker_command)) => {
-                                        state = blinker_command;
+                                        // state = blinker_command;
                                         blink_state = true;
-                                        set_blinker_state(blink_state, state, &mut left_pin, &mut right_pin, &mut publisher).await;
+                                        set_blinker_state(blink_state, blinker_command, &mut left_pin, &mut right_pin, &mut publisher).await;
                                         match blinker_command {
                                             BlinkerState::Off => {
                                                 break;
@@ -52,7 +52,7 @@ async fn blinker_controller(mut subscriber: MessageSubscriber,  mut left_pin: Le
                             Either::Second(_) => {
 
                                 blink_state = !blink_state;
-                                set_blinker_state(blink_state, state, &mut left_pin, &mut right_pin, &mut publisher).await;
+                                set_blinker_state(blink_state, blinker, &mut left_pin, &mut right_pin, &mut publisher).await;
 
                             },
                         }
