@@ -7,52 +7,30 @@ extern crate alloc;
 use core::mem::MaybeUninit;
 
 use embassy_executor::Executor;
-use embassy_sync::{pubsub::{PubSubChannel, Subscriber}, blocking_mutex::raw::NoopRawMutex};
+use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::Timer;
 use esp_backtrace as _;
-use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, EspNowReceiver, EspNowSender, BROADCAST_ADDRESS}};
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::{self, config::PinConfig}}, gpio::{PushPull, Output, Gpio3, Gpio5, Gpio2, Gpio4, Gpio9, Gpio18, Gpio7, Gpio1, Gpio6, Gpio0}, Rtc};
+use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
+use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::config::PinConfig}, Rtc};
 
-use log::{info, error};
-use protocol::{ControlMessage, TelemetryMessage, MAX_MESSAGES, MAX_SUBS, MAX_PUBS, MessageChannel, MessagePublisher, Message, MessageSubscriber};
+use log::info;
+use protocol::{ControlMessage, TelemetryMessage, MessageChannel, MessagePublisher, Message, MessageSubscriber};
 use static_cell::make_static;
 
 use esp_backtrace as _;
 
-use crate::{servo::Servo, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, blinkers::blinker};
+use crate::{blinkers::blinker, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, net::{receiver, sender}, servo::Servo, types::{MotorServo, SteeringPin, HEADLIGHT_CHANNEL, LED_TIMER_NUMBER, MOTOR_CHANNEL, MOTOR_TIMER_NUMBER, SERVO_TIMER_NUMBER, STEERING_CHANNEL}};
 
 mod servo;
 mod blinkers;
 mod lights;
-
-
-pub type RightBlinkerPin = Gpio1<Output<PushPull>>;
-pub type BrakeLightPin = Gpio2<Output<PushPull>>;
-pub type TailLightPin = Gpio3<Output<PushPull>>;
-pub type ReverseLightPin = Gpio4<Output<PushPull>>;
-pub type LeftBlinkerPin = Gpio5<Output<PushPull>>;
-pub type MotorPin = Gpio7<Output<PushPull>>;
-
-pub type HeadlightPin = Gpio0<Output<PushPull>>;
-pub type FrontLeftBlinkerPin = Gpio18<Output<PushPull>>;
-pub type FrontRightBlinkerPin = Gpio9<Output<PushPull>>;
-pub type SteeringPin = Gpio6<Output<PushPull>>;
-
-pub type MotorServo = Servo<'static, MotorPin, 820, 1638, 14, MOTOR_FREQUENCY>;
-
-pub const SERVO_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer0;
-pub const LED_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer1;
-pub const MOTOR_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer2;
-
-pub const STEERING_CHANNEL: channel::Number = channel::Number::Channel0;
-pub const MOTOR_CHANNEL: channel::Number = channel::Number::Channel1;
-pub const HEADLIGHT_CHANNEL: channel::Number = channel::Number::Channel2;
+mod net;
+mod types;
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
 
 
-const MOTOR_FREQUENCY: u32 = 50;
 
 fn init_heap() {
     const HEAP_SIZE: usize = 32 * 1024;
@@ -259,51 +237,7 @@ async fn recalibrate_motor(motor_servo: &mut MotorServo) {
     Timer::after_secs(2).await;
     info!("Motor initialization complete!");
 }
-#[embassy_executor::task]
-async fn sender(mut esp_sender: EspNowSender<'static>, mut subscriber: Subscriber<'static, NoopRawMutex,Message,MAX_MESSAGES,MAX_SUBS,MAX_PUBS>)->! {
-    loop {
-        let message = subscriber.next_message_pure().await;
-        // Only send telemetry
-        match message {
-            Message::Control(_) => {},
-            Message::Telemetry(_) => {
-                info!("Sending message from car: {:?}",message);
-                match message.to_bytes() {
-                    Ok(msg) => {
-                        match esp_sender.send_async(&BROADCAST_ADDRESS, &msg).await {
-                            Ok(_) => {},
-                            Err(e) => {
-                                error!("Error sending telemetry: {:?}",e);
-                            },  
-                        }
-                    },
-                    Err(e) => error!("Error serializing telemetry: {:?}",e),
-                }
-        
-            },
-        }
-    }
-}
 
-#[embassy_executor::task]
-async fn receiver(mut esp_receiver: EspNowReceiver<'static>, publisher: MessagePublisher)->! {
-    info!("Starting receiver...");
-    loop {
-        let msg = esp_receiver.receive_async().await;
-
-        let _sender = msg.info.src_address;
-        let msg = Message::from_slice(&msg.data);
-        info!("ESPNOW Reeived: {:?}",msg);
-        match msg {
-            Ok(msg) => {
-                publisher.publish(msg).await;
-            },
-            Err(e) => {
-                error!("Problem: {:?}",e);
-            },
-        }
-    }
-}
 
 #[embassy_executor::task]
 async fn test_lights(publisher: MessagePublisher)->! {
