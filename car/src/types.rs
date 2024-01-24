@@ -13,7 +13,7 @@ pub type HeadlightPin = Gpio0<Output<PushPull>>;
 pub type SteeringPin = Gpio6<Output<PushPull>>;
 
 pub type MotorServo = Servo<'static, MotorPin, 820, 1638, 14, MOTOR_FREQUENCY>;
-
+pub type SteeringServo = Servo<'static, SteeringPin, 600, 2415, 14, MOTOR_FREQUENCY>;
 
 pub const SERVO_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer0;
 pub const LED_TIMER_NUMBER: timer::Number = hal::ledc::timer::Number::Timer1;

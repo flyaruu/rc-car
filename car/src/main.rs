@@ -19,7 +19,7 @@ use static_cell::make_static;
 
 use esp_backtrace as _;
 
-use crate::{blinkers::blinker, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, net::{receiver, sender}, servo::Servo, types::{MotorServo, SteeringPin, HEADLIGHT_CHANNEL, LED_TIMER_NUMBER, MOTOR_CHANNEL, MOTOR_TIMER_NUMBER, SERVO_TIMER_NUMBER, STEERING_CHANNEL}};
+use crate::{blinkers::blinker, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, net::{receiver, sender}, servo::Servo, types::{MotorServo, SteeringPin, SteeringServo, HEADLIGHT_CHANNEL, LED_TIMER_NUMBER, MOTOR_CHANNEL, MOTOR_TIMER_NUMBER, SERVO_TIMER_NUMBER, STEERING_CHANNEL}};
 
 mod servo;
 mod blinkers;
@@ -136,7 +136,7 @@ fn main() -> ! {
 
     let headlight_controller = HeadlightController::new(headlight_channel,taillight_pin);
 
-    let steering_servo: &'static mut Servo<'_, SteeringPin, 600, 2415,14,50> = make_static!(Servo::new(steering_channel));
+    let steering_servo: &'static mut SteeringServo = make_static!(Servo::new(steering_channel));
     let motor_servo: &'static mut MotorServo = make_static!(Servo::new(motor_channel));
 
     let executor = make_static!(Executor::new());
@@ -196,7 +196,7 @@ async fn heartbeat(publisher: MessagePublisher)->! {
 }
 
 #[embassy_executor::task]
-async fn steering(mut subscriber: MessageSubscriber, steering_servo: &'static mut Servo<'_, SteeringPin, 600, 2415, 14, 50>)-> ! {
+async fn steering(mut subscriber: MessageSubscriber, steering_servo: &'static mut SteeringServo)-> ! {
     steering_servo.set_percentage(50_u8); // center steering
     loop {
         match subscriber.next_message_pure().await {
