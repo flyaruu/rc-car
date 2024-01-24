@@ -85,6 +85,8 @@ pub enum TelemetryMessage {
     MotorSetting(u32),
     LogMessage(String),
     Rotation(u32),
+    MotorRpm(u64),
+    MotorOdo(u64),
     Rpm(u64),
     Odo(u64),
 }

@@ -19,7 +19,7 @@ use static_cell::make_static;
 
 use esp_backtrace as _;
 
-use crate::{blinkers::blinker, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, net::{receiver, sender}, servo::Servo, types::{MotorServo, SteeringPin, SteeringServo, HEADLIGHT_CHANNEL, LED_TIMER_NUMBER, MOTOR_CHANNEL, MOTOR_TIMER_NUMBER, SERVO_TIMER_NUMBER, STEERING_CHANNEL}};
+use crate::{blinkers::blinker, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, net::{receiver, sender}, servo::Servo, types::{MotorServo, SteeringServo, HEADLIGHT_CHANNEL, LED_TIMER_NUMBER, MOTOR_CHANNEL, MOTOR_TIMER_NUMBER, SERVO_TIMER_NUMBER, STEERING_CHANNEL}};
 
 mod servo;
 mod blinkers;
@@ -28,6 +28,8 @@ mod tach;
 
 mod net;
 mod types;
+mod tach;
+mod speedo;
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
@@ -68,7 +70,12 @@ fn main() -> ! {
     let left_blinker_pin = io.pins.gpio5.into_push_pull_output();
     let right_blinker_pin = io.pins.gpio1.into_push_pull_output();
 
+<<<<<<< HEAD
     let tach_pin = io.pins.gpio19.into_pull_down_input();
+=======
+    let tach_pin = io.pins.gpio10.into_floating_input();
+    let speedo_pin = io.pins.gpio9.into_floating_input();
+>>>>>>> fdbe77d (rear-wheel tach working)
 
 
     let ledc = LEDC::new(peripherals.LEDC, clocks);
@@ -133,7 +140,6 @@ fn main() -> ! {
         })
         .unwrap();
 
-
     let headlight_controller = HeadlightController::new(headlight_channel,taillight_pin);
 
     let steering_servo: &'static mut SteeringServo = make_static!(Servo::new(steering_channel));
@@ -180,6 +186,10 @@ fn main() -> ! {
         spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
         // spawner.spawn(test_motor(command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(tach::tach(spawner,tach_pin,command_channel.publisher().unwrap(),rtc)).unwrap();
+<<<<<<< HEAD
+=======
+        spawner.spawn(speedo::tach(spawner,speedo_pin,command_channel.publisher().unwrap(),rtc)).unwrap();
+>>>>>>> fdbe77d (rear-wheel tach working)
     })
 }
 
