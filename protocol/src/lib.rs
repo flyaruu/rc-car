@@ -84,6 +84,9 @@ pub enum TelemetryMessage {
     Blink(BlinkState),
     MotorSetting(u32),
     LogMessage(String),
+    Rotation(u32),
+    Rpm(u64),
+    Odo(u64),
 }
 
 #[derive(Serialize,Deserialize,Clone,Debug)]
