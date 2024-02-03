@@ -11,7 +11,7 @@ esp-backtrace = { version = "0.8.0", features = ["esp32c3", "panic-handler", "ex
 esp-println = { version = "0.6.0", features = ["esp32c3","log"] }
 log = { version = "0.4.18" }
 esp-alloc = { version = "0.3.0" }
-esp-wifi  = { version = "0.2", features = ["esp32c3", "wifi", "embassy-net", "async", "esp-now"] }
+esp-wifi  = { version = "0.3", features = ["esp32c3", "wifi", "embassy-net", "async", "esp-now"] }
 embedded-svc = { version = "0.26.1", default-features = false, features = [] }
 embedded-io = "0.4.0"
 heapless = { version = "0.7.14", default-features = false }

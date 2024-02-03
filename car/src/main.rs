@@ -11,7 +11,7 @@ use embassy_sync::pubsub::PubSubChannel;
 use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, EspNowReceiver, EspNowSender, BROADCAST_ADDRESS}};
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::{self, config::PinConfig}}, gpio::{Gpio0, Gpio1, Gpio18, Gpio19, Gpio2, Gpio3, Gpio4, Gpio5, Gpio6, Gpio7, Gpio9, Input, Output, PullDown, PullUp, PushPull}, Rtc};
+use hal::{clock::ClockControl, embassy, gpio::{Gpio0, Gpio1, Gpio18, Gpio19, Gpio2, Gpio3, Gpio4, Gpio5, Gpio6, Gpio7, Gpio9, Input, Output, PullDown, PullUp, PushPull}, interrupt::enable, ledc::{channel::{self, config::PinConfig}, timer, LSGlobalClkSource, LowSpeed, LEDC}, peripherals::Peripherals, prelude::*, riscv::interrupt::enable, systimer::SystemTimer, timer::TimerGroup, Rng, Rtc, IO};
 
 use log::info;
 use protocol::{ControlMessage, TelemetryMessage, MessageChannel, MessagePublisher, Message, MessageSubscriber};
@@ -70,13 +70,8 @@ fn main() -> ! {
     let left_blinker_pin = io.pins.gpio5.into_push_pull_output();
     let right_blinker_pin = io.pins.gpio1.into_push_pull_output();
 
-<<<<<<< HEAD
-    let tach_pin = io.pins.gpio19.into_pull_down_input();
-=======
     let tach_pin = io.pins.gpio10.into_floating_input();
     let speedo_pin = io.pins.gpio9.into_floating_input();
->>>>>>> fdbe77d (rear-wheel tach working)
-
 
     let ledc = LEDC::new(peripherals.LEDC, clocks);
     let ledc = make_static!(ledc);
@@ -167,9 +162,7 @@ fn main() -> ! {
     // TODO unify?
     let command_channel: &MessageChannel = make_static!(PubSubChannel::new());
     // let telemetry_channel: &MessageChannel = make_static!(PubSubChannel::new());
-    hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
-
-
+    enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
     executor.run(|spawner| {
         spawner.spawn(receiver(esp_receiver,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(steering(command_channel.subscriber().unwrap(),steering_servo)).unwrap();
@@ -186,10 +179,7 @@ fn main() -> ! {
         spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
         // spawner.spawn(test_motor(command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(tach::tach(spawner,tach_pin,command_channel.publisher().unwrap(),rtc)).unwrap();
-<<<<<<< HEAD
-=======
         spawner.spawn(speedo::tach(spawner,speedo_pin,command_channel.publisher().unwrap(),rtc)).unwrap();
->>>>>>> fdbe77d (rear-wheel tach working)
     })
 }
 
