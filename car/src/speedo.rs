@@ -3,7 +3,7 @@ use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::Timer;
 use embedded_hal_async::digital::Wait;
 use hal::Rtc;
-use log::info;
+
 use protocol::MessagePublisher;
 use static_cell::make_static;
 

@@ -9,7 +9,7 @@ use embassy_executor::Executor;
 
 
 use embassy_futures::select::{select, Either};
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal, pubsub::PubSubChannel};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::Timer;
 
 use embedded_hal_async::digital::Wait;
@@ -54,7 +54,7 @@ fn main() -> ! {
     let system = peripherals.SYSTEM.split();
     let clocks = ClockControl::max(system.clock_control).freeze();
     // let mut delay = Delay::new(&clocks);
-    let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
+    let rtc = make_static!(Rtc::new(peripherals.LPWR));
 
     // setup logger
     // To change the log_level change the env section in .cargo/config.toml
@@ -82,7 +82,7 @@ fn main() -> ! {
     let status_pin = io.pins.gpio3.into_push_pull_output();
     println!("Embassy init starting");
 
-    embassy::init(&clocks,timer_group.timer0);
+    embassy::init(&clocks,timer_group);
     info!("Embassy init done");
     let timer = SystemTimer::new(peripherals.SYSTIMER).alarm0;
     let init = initialize(
@@ -97,7 +97,7 @@ fn main() -> ! {
     let esp_now = EspNow::new(&init, wifi).unwrap();
 
     hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
-    let command_channel: MessageChannel = PubSubChannel::new();
+    let command_channel: MessageChannel = MessageChannel::new();
     let command_channel = make_static!(command_channel);
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
     let heartbeat_signal: &mut Signal<NoopRawMutex,u64> = make_static!(Signal::new());

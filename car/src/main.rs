@@ -7,11 +7,11 @@ extern crate alloc;
 use core::mem::MaybeUninit;
 
 use embassy_executor::Executor;
-use embassy_sync::pubsub::PubSubChannel;
+
 use embassy_time::Timer;
 use esp_backtrace as _;
-use esp_wifi::{EspWifiInitFor, initialize, esp_now::{EspNow, EspNowReceiver, EspNowSender, BROADCAST_ADDRESS}};
-use hal::{clock::ClockControl, embassy, gpio::{Gpio0, Gpio1, Gpio18, Gpio19, Gpio2, Gpio3, Gpio4, Gpio5, Gpio6, Gpio7, Gpio9, Input, Output, PullDown, PullUp, PushPull}, interrupt::enable, ledc::{channel::{self, config::PinConfig}, timer, LSGlobalClkSource, LowSpeed, LEDC}, peripherals::Peripherals, prelude::*, riscv::interrupt::enable, systimer::SystemTimer, timer::TimerGroup, Rng, Rtc, IO};
+use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
+use hal::{clock::ClockControl, embassy, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::config::PinConfig}, peripherals::Peripherals, prelude::*, systimer::SystemTimer, timer::TimerGroup, Rng, Rtc, IO};
 
 use log::info;
 use protocol::{ControlMessage, TelemetryMessage, MessageChannel, MessagePublisher, Message, MessageSubscriber};
@@ -24,7 +24,6 @@ use crate::{blinkers::blinker, lights::{HeadlightController, light_controller, b
 mod servo;
 mod blinkers;
 mod lights;
-mod tach;
 
 mod net;
 mod types;
@@ -53,8 +52,7 @@ fn main() -> ! {
     let clocks = ClockControl::max(system.clock_control).freeze();
     let clocks = make_static!(clocks);
     // let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
-    let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
-
+    let rtc = make_static!(Rtc::new(peripherals.LPWR));
     esp_println::logger::init_logger(log::LevelFilter::Info);
     log::info!("Logger is setup");
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
@@ -142,7 +140,7 @@ fn main() -> ! {
 
     let executor = make_static!(Executor::new());
     let timer_group = TimerGroup::new(peripherals.TIMG0, &clocks);    
-    embassy::init(&clocks,timer_group.timer0);
+    embassy::init(&clocks,timer_group);
 
     let timer = SystemTimer::new(peripherals.SYSTIMER).alarm0;
     let init = initialize(
@@ -160,9 +158,10 @@ fn main() -> ! {
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
 
     // TODO unify?
-    let command_channel: &MessageChannel = make_static!(PubSubChannel::new());
+    let command_channel: &MessageChannel = make_static!(MessageChannel::new());
     // let telemetry_channel: &MessageChannel = make_static!(PubSubChannel::new());
-    enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
+    hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
+
     executor.run(|spawner| {
         spawner.spawn(receiver(esp_receiver,command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(steering(command_channel.subscriber().unwrap(),steering_servo)).unwrap();
