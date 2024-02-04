@@ -10,8 +10,9 @@ use embassy_executor::Executor;
 
 use embassy_time::Timer;
 use esp_backtrace as _;
+use esp_println::print;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
-use hal::{clock::ClockControl, embassy, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::config::PinConfig}, peripherals::Peripherals, prelude::*, systimer::SystemTimer, timer::TimerGroup, Rng, Rtc, IO};
+use hal::{clock::ClockControl, embassy, interrupt::enable, ledc::{channel::config::PinConfig, timer, LSGlobalClkSource, LowSpeed, LEDC}, peripherals::Peripherals, prelude::*, systimer::SystemTimer, timer::TimerGroup, Rng, Rtc, IO};
 
 use log::info;
 use protocol::{ControlMessage, TelemetryMessage, MessageChannel, MessagePublisher, Message, MessageSubscriber};
@@ -27,8 +28,8 @@ mod lights;
 
 mod net;
 mod types;
+
 mod tach;
-mod speedo;
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
@@ -69,12 +70,13 @@ fn main() -> ! {
     let right_blinker_pin = io.pins.gpio1.into_push_pull_output();
 
     let tach_pin = io.pins.gpio10.into_floating_input();
-    let speedo_pin = io.pins.gpio9.into_floating_input();
 
     let ledc = LEDC::new(peripherals.LEDC, clocks);
     let ledc = make_static!(ledc);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
     
+    enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
+
     let mut servo_timer = ledc.get_timer::<LowSpeed>(SERVO_TIMER_NUMBER);
     servo_timer
         .configure(timer::config::Config {
@@ -174,12 +176,34 @@ fn main() -> ! {
         spawner.spawn(reverselight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(brakelight_controller(command_channel.subscriber().unwrap(),brakelight_pin)).unwrap();
         spawner.spawn(brakelight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap(),rtc)).unwrap();
-        // spawner.spawn(blink_cancellation_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
-        // spawner.spawn(test_motor(command_channel.publisher().unwrap())).unwrap();
-        spawner.spawn(tach::tach(spawner,tach_pin,command_channel.publisher().unwrap(),rtc)).unwrap();
-        spawner.spawn(speedo::tach(spawner,speedo_pin,command_channel.publisher().unwrap(),rtc)).unwrap();
+        spawner.spawn(tach::tach(spawner, command_channel.publisher().unwrap(), tach_pin, rtc)).unwrap();
+        spawner.spawn(monitor_rpm(command_channel.subscriber().unwrap())).unwrap();
     })
+}
+
+#[embassy_executor::task]
+async fn monitor_rpm(mut subscriber: MessageSubscriber)->! {
+    let mut last_odo = 0_u64;
+    let mut last_rpm = 0_u64;
+    loop {
+        let message = subscriber.next_message_pure().await;
+        match message {
+            Message::Telemetry(telemetry) => {
+                match telemetry {
+                    TelemetryMessage::MotorRpm(rpm) => {
+                        last_rpm = rpm;
+                    },
+                    TelemetryMessage::MotorOdo(odo) => {
+                        last_odo = odo;
+                    },
+                    _ => {},
+                }
+            },
+            _ => {}
+        }
+        print!("RPM {: >4} ODO {: >4}\r",last_rpm,last_odo);
+    }
 }
 
 
