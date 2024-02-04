@@ -9,6 +9,8 @@ pub type ReverseLightPin = Gpio4<Output<PushPull>>;
 pub type LeftBlinkerPin = Gpio5<Output<PushPull>>;
 pub type MotorPin = Gpio7<Output<PushPull>>;
 
+pub type TachPin = Gpio10<Input<Floating>>;
+
 pub type HeadlightPin = Gpio0<Output<PushPull>>;
 pub type SteeringPin = Gpio6<Output<PushPull>>;
 

@@ -7,11 +7,12 @@ extern crate alloc;
 use core::mem::MaybeUninit;
 
 use embassy_executor::Executor;
-use embassy_sync::pubsub::PubSubChannel;
+
 use embassy_time::Timer;
 use esp_backtrace as _;
+use esp_println::print;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, ledc::{LEDC, LSGlobalClkSource, LowSpeed, timer, channel::config::PinConfig}, Rtc};
+use hal::{clock::ClockControl, embassy, interrupt::enable, ledc::{channel::config::PinConfig, timer, LSGlobalClkSource, LowSpeed, LEDC}, peripherals::Peripherals, prelude::*, systimer::SystemTimer, timer::TimerGroup, Rng, Rtc, IO};
 
 use log::info;
 use protocol::{ControlMessage, TelemetryMessage, MessageChannel, MessagePublisher, Message, MessageSubscriber};
@@ -19,13 +20,16 @@ use static_cell::make_static;
 
 use esp_backtrace as _;
 
-use crate::{blinkers::blinker, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, net::{receiver, sender}, servo::Servo, types::{MotorServo, SteeringPin, SteeringServo, HEADLIGHT_CHANNEL, LED_TIMER_NUMBER, MOTOR_CHANNEL, MOTOR_TIMER_NUMBER, SERVO_TIMER_NUMBER, STEERING_CHANNEL}};
+use crate::{blinkers::blinker, lights::{HeadlightController, light_controller, brakelight_controller, reverselight_controller, reverselight_motor_monitor, brakelight_motor_monitor}, net::{receiver, sender}, servo::Servo, types::{MotorServo, SteeringServo, HEADLIGHT_CHANNEL, LED_TIMER_NUMBER, MOTOR_CHANNEL, MOTOR_TIMER_NUMBER, SERVO_TIMER_NUMBER, STEERING_CHANNEL}};
 
 mod servo;
 mod blinkers;
 mod lights;
+
 mod net;
 mod types;
+
+mod tach;
 
 #[global_allocator]
 static ALLOCATOR: esp_alloc::EspHeap = esp_alloc::EspHeap::empty();
@@ -49,9 +53,8 @@ fn main() -> ! {
     let clocks = ClockControl::max(system.clock_control).freeze();
     let clocks = make_static!(clocks);
     // let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
-    let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
-
-    esp_println::logger::init_logger(log::LevelFilter::Error);
+    let rtc = make_static!(Rtc::new(peripherals.LPWR));
+    esp_println::logger::init_logger(log::LevelFilter::Info);
     log::info!("Logger is setup");
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
 
@@ -66,12 +69,14 @@ fn main() -> ! {
     let left_blinker_pin = io.pins.gpio5.into_push_pull_output();
     let right_blinker_pin = io.pins.gpio1.into_push_pull_output();
 
-
+    let tach_pin = io.pins.gpio10.into_floating_input();
 
     let ledc = LEDC::new(peripherals.LEDC, clocks);
     let ledc = make_static!(ledc);
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
     
+    enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
+
     let mut servo_timer = ledc.get_timer::<LowSpeed>(SERVO_TIMER_NUMBER);
     servo_timer
         .configure(timer::config::Config {
@@ -82,6 +87,7 @@ fn main() -> ! {
         .unwrap();
     let servo_timer = make_static!(servo_timer);
 
+    // TODO, remove motor_timer
     let mut motor_timer = ledc.get_timer::<LowSpeed>(MOTOR_TIMER_NUMBER );
     motor_timer
         .configure(timer::config::Config {
@@ -129,7 +135,6 @@ fn main() -> ! {
         })
         .unwrap();
 
-
     let headlight_controller = HeadlightController::new(headlight_channel,taillight_pin);
 
     let steering_servo: &'static mut SteeringServo = make_static!(Servo::new(steering_channel));
@@ -137,7 +142,7 @@ fn main() -> ! {
 
     let executor = make_static!(Executor::new());
     let timer_group = TimerGroup::new(peripherals.TIMG0, &clocks);    
-    embassy::init(&clocks,timer_group.timer0);
+    embassy::init(&clocks,timer_group);
 
     let timer = SystemTimer::new(peripherals.SYSTIMER).alarm0;
     let init = initialize(
@@ -155,9 +160,9 @@ fn main() -> ! {
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
 
     // TODO unify?
-    let command_channel: &MessageChannel = make_static!(PubSubChannel::new());
+    let command_channel: &MessageChannel = make_static!(MessageChannel::new());
     // let telemetry_channel: &MessageChannel = make_static!(PubSubChannel::new());
-    
+    hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
 
     executor.run(|spawner| {
         spawner.spawn(receiver(esp_receiver,command_channel.publisher().unwrap())).unwrap();
@@ -171,10 +176,34 @@ fn main() -> ! {
         spawner.spawn(reverselight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(brakelight_controller(command_channel.subscriber().unwrap(),brakelight_pin)).unwrap();
         spawner.spawn(brakelight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap(),rtc)).unwrap();
-        // spawner.spawn(blink_cancellation_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
-        // spawner.spawn(test_motor(command_channel.publisher().unwrap())).unwrap();
+        spawner.spawn(tach::tach(spawner, command_channel.publisher().unwrap(), tach_pin, rtc)).unwrap();
+        spawner.spawn(monitor_rpm(command_channel.subscriber().unwrap())).unwrap();
     })
+}
+
+#[embassy_executor::task]
+async fn monitor_rpm(mut subscriber: MessageSubscriber)->! {
+    let mut last_odo = 0_u64;
+    let mut last_rpm = 0_u64;
+    loop {
+        let message = subscriber.next_message_pure().await;
+        match message {
+            Message::Telemetry(telemetry) => {
+                match telemetry {
+                    TelemetryMessage::MotorRpm(rpm) => {
+                        last_rpm = rpm;
+                    },
+                    TelemetryMessage::MotorOdo(odo) => {
+                        last_odo = odo;
+                    },
+                    _ => {},
+                }
+            },
+            _ => {}
+        }
+        print!("RPM {: >4} ODO {: >4}\r",last_rpm,last_odo);
+    }
 }
 
 

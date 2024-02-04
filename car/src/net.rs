@@ -11,7 +11,7 @@ pub async fn sender(mut esp_sender: EspNowSender<'static>, mut subscriber: Messa
         match message {
             Message::Control(_) => {},
             Message::Telemetry(_) => {
-                info!("Sending message from car: {:?}",message);
+                // info!("Sending message from car: {:?}",message);
                 match message.to_bytes() {
                     Ok(msg) => {
                         match esp_sender.send_async(&BROADCAST_ADDRESS, &msg).await {
