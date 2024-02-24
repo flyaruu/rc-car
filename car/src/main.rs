@@ -178,7 +178,7 @@ fn main() -> ! {
         spawner.spawn(brakelight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap(),rtc)).unwrap();
         spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(tach::tach(spawner, command_channel.publisher().unwrap(), tach_pin, rtc)).unwrap();
-        spawner.spawn(monitor_rpm(command_channel.subscriber().unwrap())).unwrap();
+        // spawner.spawn(monitor_rpm(command_channel.subscriber().unwrap())).unwrap();
     })
 }
 
