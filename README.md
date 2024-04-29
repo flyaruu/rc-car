@@ -6,7 +6,7 @@ Tech stack
 - Rust
 - Embassy (Async runtime for embedded devices)
 - Postcard (serialization protocol)
-- WifiNow (Low latency transport protocol)
+- ESPNow (Low latency transport protocol)
 
 It's a workspace project. 'Car' is the the controller of the car, 'controller' is the controller to steer the car,
 'protocol' is shared code, mostly for the transfer message format.
