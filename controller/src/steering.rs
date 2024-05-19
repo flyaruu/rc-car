@@ -1,7 +1,5 @@
 use embassy_futures::select::select;
 
-use embedded_hal::digital::InputPin;
-use embedded_hal_async::digital::Wait;
 use esp_println::println;
 use log::info;
 use protocol::{ControlMessage, Message, MessagePublisher, MOTOR_CENTER_POSITION};
@@ -43,7 +41,7 @@ pub async fn rotary_motor(pin_a: MotorPinA, pin_b: MotorPinB, publisher: Message
     loop {
         let (pin_a,pin_b) = rotary.pins();
         select(pin_a.wait_for_any_edge(),pin_b.wait_for_any_edge()).await;
-        info!("A: {} B: {}",pin_a.is_high().unwrap(),pin_b.is_high().unwrap());
+        info!("A: {} B: {}",pin_a.is_high(),pin_b.is_high());
         let direction = rotary.update().unwrap();
         match direction {
             rotary_encoder_hal::Direction::Clockwise => {
@@ -64,6 +62,6 @@ pub async fn rotary_motor(pin_a: MotorPinA, pin_b: MotorPinB, publisher: Message
             },
             rotary_encoder_hal::Direction::None => (),
         }
-        println!("Count: {}",count);
+        println!("Count:: {}",count);
     }
 }

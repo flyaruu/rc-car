@@ -6,13 +6,11 @@
 extern crate alloc;
 use core::mem::MaybeUninit;
 
-use embassy_executor::Executor;
-
 use embassy_time::Timer;
 use esp_backtrace as _;
 use esp_println::print;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
-use hal::{clock::ClockControl, embassy, interrupt::enable, ledc::{channel::config::PinConfig, timer, LSGlobalClkSource, LowSpeed, LEDC}, peripherals::Peripherals, prelude::*, systimer::SystemTimer, timer::TimerGroup, Rng, Rtc, IO};
+use hal::{clock::ClockControl, embassy::{self, executor::Executor}, gpio::IO, interrupt::enable, ledc::{channel::config::PinConfig, timer, LSGlobalClkSource, LowSpeed, LEDC}, peripherals::Peripherals, prelude::*, rng::Rng, rtc_cntl::Rtc, systimer::SystemTimer, timer::TimerGroup};
 
 use log::info;
 use protocol::{ControlMessage, TelemetryMessage, MessageChannel, MessagePublisher, Message, MessageSubscriber};
@@ -53,8 +51,8 @@ fn main() -> ! {
     let clocks = ClockControl::max(system.clock_control).freeze();
     let clocks = make_static!(clocks);
     // let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
-    let rtc = make_static!(Rtc::new(peripherals.LPWR));
-    esp_println::logger::init_logger(log::LevelFilter::Info);
+    let rtc = make_static!(Rtc::new(peripherals.LPWR,None));
+    esp_println::logger::init_logger(log::LevelFilter::Trace);
     log::info!("Logger is setup");
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
 
@@ -141,7 +139,7 @@ fn main() -> ! {
     let motor_servo: &'static mut MotorServo = make_static!(Servo::new(motor_channel));
 
     let executor = make_static!(Executor::new());
-    let timer_group = TimerGroup::new(peripherals.TIMG0, &clocks);    
+    let timer_group = TimerGroup::new_async(peripherals.TIMG0, &clocks);    
     embassy::init(&clocks,timer_group);
 
     let timer = SystemTimer::new(peripherals.SYSTIMER).alarm0;

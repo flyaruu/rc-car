@@ -1,10 +1,9 @@
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
 use embassy_time::Timer;
-use hal::Rtc;
 use hal::gpio::OutputPin;
-use hal::prelude::_embedded_hal_digital_v2_OutputPin;
 use hal::ledc::{LowSpeed, channel::ChannelIFace};
+use hal::rtc_cntl::Rtc;
 use log::info;
 use protocol::MOTOR_CENTER_POSITION;
 use protocol::{ControlMessage, Headlights, MessageSubscriber, Message, MessagePublisher, ReverseLights};
@@ -42,17 +41,17 @@ pub async fn light_controller(mut subscriber: MessageSubscriber, mut light_contr
                     Headlights::High=>{
                         info!("Lights high");
                         light_controller.set_duty(99);
-                        light_controller.taillight_pin.set_high().unwrap();
+                        light_controller.taillight_pin.set_high();
                     }
                     Headlights::Low => {
                         info!("Lights low");
                         light_controller.set_duty(25);
-                        light_controller.taillight_pin.set_high().unwrap();
+                        light_controller.taillight_pin.set_high();
                     },
                     Headlights::Off => {
                         info!("Lights off");
                         light_controller.set_duty(0);
-                        light_controller.taillight_pin.set_low().unwrap();
+                        light_controller.taillight_pin.set_low();
                     }, 
                 }
             },
@@ -132,8 +131,8 @@ pub async fn brakelight_controller(mut subscriber: MessageSubscriber, mut led_pi
 
             Message::Control(ControlMessage::BrakelightCommand(cmd)) => {
                 match cmd {
-                protocol::Brakelights::On => led_pin.set_high().unwrap(),
-                protocol::Brakelights::Off => led_pin.set_low().unwrap(),
+                protocol::Brakelights::On => led_pin.set_high(),
+                protocol::Brakelights::Off => led_pin.set_low(),
                 }
             },
             _ => {},
@@ -148,8 +147,8 @@ pub async fn reverselight_controller(mut subscriber: MessageSubscriber, mut led_
 
             Message::Control(ControlMessage::ReverselightCommand(cmd)) => {
                 match cmd {
-                protocol::ReverseLights::On => led_pin.set_high().unwrap(),
-                protocol::ReverseLights::Off => led_pin.set_low().unwrap(),
+                protocol::ReverseLights::On => led_pin.set_high(),
+                protocol::ReverseLights::Off => led_pin.set_low(),
                 }
             },
             _ => {},

@@ -5,7 +5,6 @@
 
 extern crate alloc;
 use core::mem::MaybeUninit;
-use embassy_executor::Executor;
 
 
 use embassy_futures::select::{select, Either};
@@ -17,7 +16,7 @@ use esp_backtrace as _;
 
 use esp_println::println;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
-use hal::{clock::ClockControl, peripherals::Peripherals, prelude::*, IO, timer::TimerGroup, embassy, systimer::SystemTimer, Rng, Rtc};
+use hal::{clock::ClockControl, embassy::{self, executor::{self, Executor}}, gpio::IO, peripherals::Peripherals, prelude::*, rng::Rng, rtc_cntl::Rtc, systimer::SystemTimer, timer::TimerGroup};
 
 use log::info;
 use protocol::{ControlMessage, BlinkerState, Headlights, MessageChannel, MessagePublisher, Message};
@@ -54,7 +53,7 @@ fn main() -> ! {
     let system = peripherals.SYSTEM.split();
     let clocks = ClockControl::max(system.clock_control).freeze();
     // let mut delay = Delay::new(&clocks);
-    let rtc = make_static!(Rtc::new(peripherals.LPWR));
+    let rtc = make_static!(Rtc::new(peripherals.LPWR,None));
 
     // setup logger
     // To change the log_level change the env section in .cargo/config.toml
@@ -65,7 +64,7 @@ fn main() -> ! {
 
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
     let executor = make_static!(Executor::new());
-    let timer_group = TimerGroup::new(peripherals.TIMG0, &clocks);    
+    let timer_group = TimerGroup::new_async(peripherals.TIMG0, &clocks);    
 
     let rotary_pin_x_a = io.pins.gpio6.into_pull_up_input();
     let rotary_pin_x_b = io.pins.gpio4.into_pull_up_input();
@@ -145,7 +144,7 @@ async fn indicator_buttons(mut left_button_pin: LeftButtonPin, mut right_button_
 async fn button_top_left(mut button_pin: TopLeftButtonPin, publisher: MessagePublisher) {
     let mut light_state: Headlights = Headlights::Off;
     loop {
-        button_pin.wait_for_rising_edge().await.unwrap();
+        button_pin.wait_for_rising_edge().await;
         light_state = match light_state {
             Headlights::Low => Headlights::High,
             Headlights::High => Headlights::Off,
@@ -160,7 +159,7 @@ async fn button_top_left(mut button_pin: TopLeftButtonPin, publisher: MessagePub
 #[embassy_executor::task]
 async fn button_top_right(mut button_pin: TopRightButtonPin, publisher: MessagePublisher) {
     loop {
-        button_pin.wait_for_rising_edge().await.unwrap();
+        button_pin.wait_for_rising_edge().await;
         info!("Recalibrating motor");
         publisher.publish(Message::Control(ControlMessage::RecalibrateMotor)).await;
         Timer::after_millis(100).await;

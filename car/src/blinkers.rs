@@ -25,8 +25,8 @@ async fn blinker_controller(mut subscriber: MessageSubscriber,  mut left_pin: Le
                 info!("Blinker comman received: {:?}",blinker);
                 match blinker {
                     BlinkerState::Off => {
-                        left_pin.set_low().unwrap();
-                        right_pin.set_low().unwrap();
+                        left_pin.set_low();
+                        right_pin.set_low();
                         continue;
                     },
                     _ => loop {
@@ -69,29 +69,29 @@ async fn set_blinker_state(blink_state: bool, state: BlinkerState, left_pin: &mu
     if blink_state {
         match state {
             BlinkerState::Left => {
-                left_pin.set_high().unwrap();
+                left_pin.set_high();
                 publisher.publish(Message::Telemetry(TelemetryMessage::Blink(BlinkState::LeftOn))).await;
             },
             BlinkerState::Right => {
-                right_pin.set_high().unwrap();
+                right_pin.set_high();
                 publisher.publish(Message::Telemetry(TelemetryMessage::Blink(BlinkState::RightOn))).await;
     
             },
             BlinkerState::Off => {
-                left_pin.set_low().unwrap();
-                right_pin.set_low().unwrap();
+                left_pin.set_low();
+                right_pin.set_low();
                 publisher.publish(Message::Telemetry(TelemetryMessage::Blink(BlinkState::AllOff))).await;
             },
             BlinkerState::Alarm => {
-                left_pin.set_high().unwrap();
-                right_pin.set_high().unwrap();
+                left_pin.set_high();
+                right_pin.set_high();
                 publisher.publish(Message::Telemetry(TelemetryMessage::Blink(BlinkState::LeftOn))).await;
                 publisher.publish(Message::Telemetry(TelemetryMessage::Blink(BlinkState::RightOn))).await;
             }        
         }    
     } else {
-        left_pin.set_low().unwrap();
-        right_pin.set_low().unwrap();
+        left_pin.set_low();
+        right_pin.set_low();
         publisher.publish(Message::Telemetry(TelemetryMessage::Blink(BlinkState::AllOff))).await;
     }
 }

@@ -1,9 +1,8 @@
 use embassy_futures::select::{select, self};
 use embassy_sync::{signal::Signal, blocking_mutex::raw::NoopRawMutex};
 use embassy_time::Timer;
-use embedded_hal::digital::OutputPin;
 
-use hal::{Rtc, gpio::{Gpio3, Output, PushPull}};
+use hal::{gpio::{Gpio3, Output, PushPull}, rtc_cntl::Rtc};
 use log::info;
 use protocol::{Message, MessageSubscriber, TelemetryMessage};
 
@@ -22,9 +21,9 @@ pub async fn connection_state(signal: &'static Signal<NoopRawMutex,u64>, rtc: &'
         }
         let l = rtc.get_time_ms() - last_timestamp; // time since previous
         if l > 2000 {
-            status_pin.set_high().unwrap();
+            status_pin.set_high();
         } else {
-            status_pin.set_low().unwrap();
+            status_pin.set_low();
         }
         Timer::after_millis(1000).await;
     }
