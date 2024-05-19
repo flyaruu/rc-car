@@ -52,7 +52,7 @@ fn main() -> ! {
     let clocks = make_static!(clocks);
     // let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
     let rtc = make_static!(Rtc::new(peripherals.LPWR,None));
-    esp_println::logger::init_logger(log::LevelFilter::Trace);
+    esp_println::logger::init_logger(log::LevelFilter::Info);
     log::info!("Logger is setup");
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
 

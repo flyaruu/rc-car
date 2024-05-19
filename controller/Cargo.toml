@@ -10,8 +10,8 @@ hal = { package = "esp-hal", version = "0.17.0", features=["esp32c3","embassy","
 #esp-hal = { version = "0.17.0", features = [ "esp32c3","async","embassy","embassy-time-timg0","riscv","embassy-executor-thread" ] }
 
 esp-backtrace = { version = "0.10.0", features = ["esp32c3", "panic-handler", "exception-handler", "print-uart"] }
-esp-println = { version = "0.8.0", features = ["esp32c3","log"] }
-log = { version = "0.4.18" }
+esp-println = { version = "0.9.0", features = ["esp32c3","log","colors"] }
+log = { version = "0.4.21" }
 esp-alloc = { version = "0.3.0" }
 esp-wifi  = { version = "0.5", features = ["esp32c3", "phy-enable-usb", "embassy-net", "async", "esp-now"] }
 

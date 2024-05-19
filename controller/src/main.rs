@@ -59,7 +59,7 @@ fn main() -> ! {
     // To change the log_level change the env section in .cargo/config.toml
     // or remove it and set ESP_LOGLEVEL manually before running cargo run
     // this requires a clean rebuild because of https://github.com/rust-lang/cargo/issues/10358
-    esp_println::logger::init_logger(log::LevelFilter::Error);
+    esp_println::logger::init_logger(log::LevelFilter::Info);
     log::info!("Logger is setup....");
 
     let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);

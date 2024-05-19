@@ -8,8 +8,8 @@ license = "MIT OR Apache-2.0"
 [dependencies]
 hal = { package = "esp-hal", version = "0.17.0", features=["esp32c3","embassy","async","embassy-time-timg0"] }
 esp-backtrace = { version = "0.11.0", features = ["esp32c3", "panic-handler", "exception-handler", "println"] }
-esp-println = { version = "0.9.0", features = ["esp32c3","log"] }
-log = { version = "0.4.18" }
+esp-println = { version = "0.9.0", features = ["esp32c3","log","colors"] }
+log = { version = "0.4.21" }
 esp-alloc = { version = "0.3.0" }
 esp-wifi  = { version = "0.5", features = ["esp32c3", "phy-enable-usb", "embassy-net", "async", "esp-now"] }
 embedded-svc = { version = "0.27", default-features = false, features = [] }
