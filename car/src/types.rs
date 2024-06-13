@@ -1,4 +1,7 @@
-use hal::{gpio::*, ledc::{channel, timer}};
+use hal::{
+    gpio::*,
+    ledc::{channel, timer},
+};
 
 use crate::servo::Servo;
 
