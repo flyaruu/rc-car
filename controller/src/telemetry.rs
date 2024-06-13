@@ -2,7 +2,7 @@ use embassy_futures::select::{select, self};
 use embassy_sync::{signal::Signal, blocking_mutex::raw::NoopRawMutex};
 use embassy_time::Timer;
 
-use hal::{gpio::{AnyInput, AnyOutput, Gpio3, Output}, rtc_cntl::Rtc};
+use hal::{gpio::AnyOutput, rtc_cntl::Rtc};
 use log::info;
 use protocol::{Message, MessageSubscriber, TelemetryMessage};
 

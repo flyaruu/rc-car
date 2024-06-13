@@ -1,14 +1,10 @@
 use alloc::boxed::Box;
 use embassy_executor::{task, Spawner};
-use embassy_futures::select::{select, Either};
-use embassy_sync::{blocking_mutex::raw::NoopRawMutex, pubsub::{PubSubChannel, Publisher, Subscriber}, signal::Signal};
+use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::Timer;
-use embedded_hal_async::digital::Wait;
-use hal::{gpio::{AnyInput, Pull}, rtc_cntl::Rtc};
+use hal::{gpio::AnyInput, rtc_cntl::Rtc};
 use log::info;
 use protocol::MessagePublisher;
-
-use crate::types::TachPin;
 
 #[task]
 pub async fn tach(spawner: Spawner, publisher: MessagePublisher, tach_pin: AnyInput<'static>, rtc: &'static Rtc<'static>) {
@@ -19,14 +15,13 @@ pub async fn tach(spawner: Spawner, publisher: MessagePublisher, tach_pin: AnyIn
     spawner.spawn(tach_publisher(publisher, odo_signal, rpm_signal, rtc)).unwrap();
 }
 
-const MAX_WAIT: u64 = 50;
 #[task]
 pub async fn revolution(mut tach_pin: AnyInput<'static>, rtc: &'static Rtc<'static>, odo_signal: &'static Signal<NoopRawMutex,u64>, rpm_signal: &'static Signal<NoopRawMutex,u64>)->! {
     let mut odo = 0_u64;
     let mut last_pulse = rtc.get_time_us();
     // let mut tach_pin = AnyInput::new(gpio_pin, Pull::None);
     loop {
-        let event = tach_pin.wait_for_rising_edge().await;
+        tach_pin.wait_for_rising_edge().await;
         // match event {
                 let now = rtc.get_time_us();
                 let elapsed = now - last_pulse;
@@ -50,14 +45,14 @@ pub async fn revolution(mut tach_pin: AnyInput<'static>, rtc: &'static Rtc<'stat
             // },
         // }
         // tach_pin.wait_for_rising_edge().await.unwrap();
-
+        odo+=1;
     }
 }
 
 #[task]
 pub async fn tach_publisher(publisher: MessagePublisher, odo_signal: &'static Signal<NoopRawMutex,u64>, rpm_signal: &'static Signal<NoopRawMutex,u64>, rtc: &'static Rtc<'static>)->! {
     info!("Tech publisher started");
-    let mut last_rpm = 0_u64;
+    // let mut last_rpm = 0_u64;
     let mut last_signal = rtc.get_time_us();
     loop {
 

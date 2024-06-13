@@ -12,7 +12,7 @@ use esp_backtrace as _;
 use esp_hal_embassy::{init, Executor};
 use esp_println::print;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
-use hal::{clock::ClockControl, gpio::{AnyInput, AnyOutput, Io, Level, Pull}, interrupt::enable, ledc::{channel::config::PinConfig, timer, LSGlobalClkSource, Ledc, LowSpeed}, peripherals::{Peripherals, LEDC}, prelude::*, rng::Rng, rtc_cntl::Rtc, system::SystemControl, timer::{systimer::SystemTimer, timg::TimerGroup}};
+use hal::{clock::ClockControl, gpio::{AnyInput, AnyOutput, Io, Level, Pull}, interrupt::enable, ledc::{channel::config::PinConfig, timer, LSGlobalClkSource, Ledc, LowSpeed}, peripherals::Peripherals, prelude::*, rng::Rng, rtc_cntl::Rtc, system::SystemControl, timer::{systimer::SystemTimer, timg::TimerGroup}};
 
 use log::info;
 use protocol::{ControlMessage, TelemetryMessage, MessageChannel, MessagePublisher, Message, MessageSubscriber};
@@ -63,13 +63,13 @@ fn main() -> ! {
 
     // let headlight_pin = AnyOutput::new(io.pins.gpio0, Level::Low);
     let taillight_pin = AnyOutput::new(io.pins.gpio3, Level::Low);
-    let brakelight_pin = AnyOutput::new(io.pins.gpio2, Level::Low);;
-    let reverselight_pin = AnyOutput::new(io.pins.gpio4, Level::Low);;
+    let brakelight_pin = AnyOutput::new(io.pins.gpio2, Level::Low);
+    let reverselight_pin = AnyOutput::new(io.pins.gpio4, Level::Low);
 
-    let left_blinker_pin = AnyOutput::new(io.pins.gpio5, Level::Low);;
-    let right_blinker_pin = AnyOutput::new(io.pins.gpio1, Level::Low);;
+    let left_blinker_pin = AnyOutput::new(io.pins.gpio5, Level::Low);
+    let right_blinker_pin = AnyOutput::new(io.pins.gpio1, Level::Low);
 
-    let tach_pin = AnyInput::new(io.pins.gpio10, Pull::None);;
+    let tach_pin = AnyInput::new(io.pins.gpio10, Pull::None);
 
     let ledc = Ledc::new(peripherals.LEDC, clocks);
     let ledc = Box::leak(Box::new(ledc));
@@ -177,7 +177,6 @@ fn main() -> ! {
         spawner.spawn(brakelight_motor_monitor(command_channel.subscriber().unwrap(),command_channel.publisher().unwrap(),rtc)).unwrap();
         spawner.spawn(test_lights(command_channel.publisher().unwrap())).unwrap();
         spawner.spawn(tach::tach(spawner, command_channel.publisher().unwrap(), tach_pin, rtc)).unwrap();
-        // spawner.spawn(monitor_rpm(command_channel.subscriber().unwrap())).unwrap();
     })
 }
 
