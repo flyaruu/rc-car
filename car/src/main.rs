@@ -311,14 +311,12 @@ async fn steering(
 ) -> ! {
     steering_servo.set_percentage(50_u8); // center steering
     loop {
-        match subscriber.next_message_pure().await {
-            Message::Control(ControlMessage::SteeringPosition(value)) => {
-                info!("Steering value: {}", value);
-                // assert values min -50 max 50
-                let value: u32 = ((value.min(12).max(-12)) as u32) + 50; // normalize to 0..100
-                steering_servo.set_percentage(value as u8);
-            }
-            _ => {}
+        if let Message::Control(ControlMessage::SteeringPosition(value)) = subscriber.next_message_pure().await {
+            info!("Steering value: {}", value);
+            // assert values min -50 max 50
+            let value = value.clamp(-12, 12) + 50;
+            // let value: u32 = ((value.min(12).max(-12)) as u32) + 50; // normalize to 0..100
+            steering_servo.set_percentage(value as u8);
         }
     }
 }

@@ -64,11 +64,8 @@ async fn blinker_controller(
                                             &mut publisher,
                                         )
                                         .await;
-                                        match blinker_command {
-                                            BlinkerState::Off => {
-                                                break;
-                                            }
-                                            _ => {}
+                                        if blinker_command == BlinkerState::Off {
+                                            break;
                                         }
                                     }
                                     _ => {}
