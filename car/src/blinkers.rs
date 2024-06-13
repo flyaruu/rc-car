@@ -2,20 +2,17 @@ use embassy_executor::Spawner;
 use embassy_futures::select::{select, Either};
 
 use embassy_time::Timer;
-use embedded_hal::digital::OutputPin;
+use hal::gpio::AnyOutput;
 use log::info;
 use protocol::{BlinkState, BlinkerState, ControlMessage, Message, MessagePublisher, MessageSubscriber, TelemetryMessage};
 
-use crate::types::{LeftBlinkerPin, RightBlinkerPin};
-
-
 #[embassy_executor::task]
-pub async fn blinker(spawner: Spawner, subscriber: MessageSubscriber, publisher: MessagePublisher, left_pin: LeftBlinkerPin, right_pin: RightBlinkerPin) {
+pub async fn blinker(spawner: Spawner, subscriber: MessageSubscriber, publisher: MessagePublisher, left_pin: AnyOutput<'static>, right_pin: AnyOutput<'static>) {
     spawner.spawn(blinker_controller(subscriber, left_pin,right_pin,publisher)).unwrap();
 }
 
 #[embassy_executor::task]
-async fn blinker_controller(mut subscriber: MessageSubscriber,  mut left_pin: LeftBlinkerPin, mut right_pin: RightBlinkerPin, mut publisher: MessagePublisher)-> ! {
+async fn blinker_controller(mut subscriber: MessageSubscriber,  mut left_pin: AnyOutput<'static>, mut right_pin: AnyOutput<'static>, mut publisher: MessagePublisher)-> ! {
     // let mut state = BlinkerState::Off;
     let mut blink_state = false;
     loop {
@@ -64,7 +61,7 @@ async fn blinker_controller(mut subscriber: MessageSubscriber,  mut left_pin: Le
     }
 }
 
-async fn set_blinker_state(blink_state: bool, state: BlinkerState, left_pin: &mut LeftBlinkerPin, right_pin: &mut RightBlinkerPin, publisher: &mut MessagePublisher) {
+async fn set_blinker_state(blink_state: bool, state: BlinkerState, left_pin: &mut AnyOutput<'static>, right_pin: &mut AnyOutput<'static>, publisher: &mut MessagePublisher) {
     info!("Setting blinker state to: {blink_state} and {:?}",state);
     if blink_state {
         match state {

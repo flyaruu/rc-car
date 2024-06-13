@@ -7,28 +7,26 @@ extern crate alloc;
 use core::mem::MaybeUninit;
 
 
+use alloc::boxed::Box;
 use embassy_futures::select::{select, Either};
 use embassy_sync::{blocking_mutex::raw::NoopRawMutex, signal::Signal};
 use embassy_time::Timer;
 
-use embedded_hal_async::digital::Wait;
 use esp_backtrace as _;
 
+use esp_hal_embassy::{init, Executor};
 use esp_println::println;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
-use hal::{clock::ClockControl, embassy::{self, executor::{self, Executor}}, gpio::IO, peripherals::Peripherals, prelude::*, rng::Rng, rtc_cntl::Rtc, systimer::SystemTimer, timer::TimerGroup};
+use hal::{clock::ClockControl, gpio::{AnyInput, AnyOutput, Io, Level, Pull}, peripherals::Peripherals, prelude::*, rng::Rng, rtc_cntl::Rtc, system::SystemControl, timer::{systimer::SystemTimer, timg::TimerGroup}};
 
 use log::info;
 use protocol::{ControlMessage, BlinkerState, Headlights, MessageChannel, MessagePublisher, Message};
 
-use static_cell::make_static;
 
 mod steering;
 mod telemetry;
 mod net;
-mod types;
 use esp_backtrace as _;
-use types::{LeftButtonPin, RightButtonPin, TopLeftButtonPin, TopRightButtonPin};
 
 
 use crate::{net::{receiver, sender}, steering::{rotary_steering, rotary_motor}, telemetry::{connection_state, telemetry_receiver}};
@@ -50,10 +48,10 @@ fn init_heap() {
 fn main() -> ! {
     init_heap();
     let peripherals = Peripherals::take();
-    let system = peripherals.SYSTEM.split();
+    let system = SystemControl::new(peripherals.SYSTEM);
     let clocks = ClockControl::max(system.clock_control).freeze();
     // let mut delay = Delay::new(&clocks);
-    let rtc = make_static!(Rtc::new(peripherals.LPWR,None));
+    let rtc = Box::leak(Box::new(Rtc::new(peripherals.LPWR,None)));
 
     // setup logger
     // To change the log_level change the env section in .cargo/config.toml
@@ -62,33 +60,33 @@ fn main() -> ! {
     esp_println::logger::init_logger(log::LevelFilter::Info);
     log::info!("Logger is setup....");
 
-    let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
-    let executor = make_static!(Executor::new());
+    let io = Io::new(peripherals.GPIO,peripherals.IO_MUX);
+    let executor = Box::leak(Box::new(Executor::new()));
     let timer_group = TimerGroup::new_async(peripherals.TIMG0, &clocks);    
 
-    let rotary_pin_x_a = io.pins.gpio6.into_pull_up_input();
-    let rotary_pin_x_b = io.pins.gpio4.into_pull_up_input();
+    let rotary_pin_x_a = AnyInput::new(io.pins.gpio6, Pull::Up);
+    let rotary_pin_x_b = AnyInput::new(io.pins.gpio4, Pull::Up);
 
-    let rotary_pin_y_a = io.pins.gpio18.into_pull_up_input();
-    let rotary_pin_y_b = io.pins.gpio19.into_pull_up_input();
+    let rotary_pin_y_a = AnyInput::new(io.pins.gpio18, Pull::Up);
+    let rotary_pin_y_b = AnyInput::new(io.pins.gpio19, Pull::Up);
 
-    let button_pin_x = io.pins.gpio5.into_pull_up_input();
-    let button_pin_y = io.pins.gpio9.into_pull_up_input();
+    let button_pin_x = AnyInput::new(io.pins.gpio5, Pull::Up);
+    let button_pin_y = AnyInput::new(io.pins.gpio9, Pull::Up);
 
-    let button_pin_top_left = io.pins.gpio7.into_pull_up_input();
-    let button_pin_top_right = io.pins.gpio8.into_pull_up_input();
+    let button_pin_top_left = AnyInput::new(io.pins.gpio7, Pull::Up);
+    let button_pin_top_right = AnyInput::new(io.pins.gpio8, Pull::Up);
 
-    let status_pin = io.pins.gpio3.into_push_pull_output();
+    let status_pin = AnyOutput::new(io.pins.gpio3, Level::Low);
     println!("Embassy init starting");
 
-    embassy::init(&clocks,timer_group);
+    init(&clocks,timer_group);
     info!("Embassy init done");
     let timer = SystemTimer::new(peripherals.SYSTIMER).alarm0;
     let init = initialize(
         EspWifiInitFor::Wifi,
         timer,
         Rng::new(peripherals.RNG),
-        system.radio_clock_control,
+        peripherals.RADIO_CLK,
         &clocks,
     )
     .unwrap();
@@ -97,9 +95,9 @@ fn main() -> ! {
 
     hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
     let command_channel: MessageChannel = MessageChannel::new();
-    let command_channel = make_static!(command_channel);
+    let command_channel = Box::leak(Box::new(command_channel));
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
-    let heartbeat_signal: &mut Signal<NoopRawMutex,u64> = make_static!(Signal::new());
+    let heartbeat_signal: &mut Signal<NoopRawMutex,u64> = Box::leak(Box::new(Signal::new()));
 
     executor.run(|spawner| {
         spawner.spawn(sender(esp_sender,command_channel.subscriber().unwrap())).unwrap();
@@ -117,7 +115,7 @@ fn main() -> ! {
 
 
 #[embassy_executor::task]
-async fn indicator_buttons(mut left_button_pin: LeftButtonPin, mut right_button_pin: RightButtonPin, publisher: MessagePublisher) {
+async fn indicator_buttons(mut left_button_pin: AnyInput<'static>, mut right_button_pin: AnyInput<'static>, publisher: MessagePublisher) {
     let mut blinker_state  = BlinkerState::Off;
     loop {
         match select(left_button_pin.wait_for_rising_edge(),right_button_pin.wait_for_rising_edge()).await {
@@ -141,7 +139,7 @@ async fn indicator_buttons(mut left_button_pin: LeftButtonPin, mut right_button_
 }
 
 #[embassy_executor::task]
-async fn button_top_left(mut button_pin: TopLeftButtonPin, publisher: MessagePublisher) {
+async fn button_top_left(mut button_pin: AnyInput<'static>, publisher: MessagePublisher) {
     let mut light_state: Headlights = Headlights::Off;
     loop {
         button_pin.wait_for_rising_edge().await;
@@ -157,7 +155,7 @@ async fn button_top_left(mut button_pin: TopLeftButtonPin, publisher: MessagePub
 }
 
 #[embassy_executor::task]
-async fn button_top_right(mut button_pin: TopRightButtonPin, publisher: MessagePublisher) {
+async fn button_top_right(mut button_pin: AnyInput<'static>, publisher: MessagePublisher) {
     loop {
         button_pin.wait_for_rising_edge().await;
         info!("Recalibrating motor");

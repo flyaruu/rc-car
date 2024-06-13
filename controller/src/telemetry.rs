@@ -2,13 +2,13 @@ use embassy_futures::select::{select, self};
 use embassy_sync::{signal::Signal, blocking_mutex::raw::NoopRawMutex};
 use embassy_time::Timer;
 
-use hal::{gpio::{Gpio3, Output, PushPull}, rtc_cntl::Rtc};
+use hal::{gpio::{AnyInput, AnyOutput, Gpio3, Output}, rtc_cntl::Rtc};
 use log::info;
 use protocol::{Message, MessageSubscriber, TelemetryMessage};
 
 
 #[embassy_executor::task]
-pub async fn connection_state(signal: &'static Signal<NoopRawMutex,u64>, rtc: &'static Rtc<'_>, mut status_pin: Gpio3<Output<PushPull>>) {
+pub async fn connection_state(signal: &'static Signal<NoopRawMutex,u64>, rtc: &'static Rtc<'_>, mut status_pin: AnyOutput<'static>) {
     info!("Connection state started...");
     let mut last_timestamp = 0_u64;
     loop {

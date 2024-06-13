@@ -1,14 +1,15 @@
 use embassy_futures::select::select;
 
 use esp_println::println;
+use hal::gpio::AnyInput;
 use log::info;
 use protocol::{ControlMessage, Message, MessagePublisher, MOTOR_CENTER_POSITION};
 use rotary_encoder_hal::Rotary;
 
-use crate::types::{MotorPinA, MotorPinB, SteeringPinA, SteeringPinB};
+// use crate::types::{MotorPinA, MotorPinB, SteeringPinA, SteeringPinB};
 
 #[embassy_executor::task]
-pub async fn rotary_steering(pin_a: SteeringPinA,pin_b: SteeringPinB, publisher: MessagePublisher) {
+pub async fn rotary_steering(pin_a: AnyInput<'static>,pin_b: AnyInput<'static>, publisher: MessagePublisher) {
     let mut rotary = Rotary::new(pin_a, pin_b);
     let mut count = 0_i32;
     loop {
@@ -34,7 +35,7 @@ pub async fn rotary_steering(pin_a: SteeringPinA,pin_b: SteeringPinB, publisher:
 }
 
 #[embassy_executor::task]
-pub async fn rotary_motor(pin_a: MotorPinA, pin_b: MotorPinB, publisher: MessagePublisher) {
+pub async fn rotary_motor(pin_a: AnyInput<'static>, pin_b: AnyInput<'static>, publisher: MessagePublisher) {
     let mut rotary = Rotary::new(pin_a, pin_b);
     let mut count = MOTOR_CENTER_POSITION;
     info!("Motor started");

@@ -6,23 +6,27 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 
 [dependencies]
-hal = { package = "esp-hal", version = "0.17.0", features=["esp32c3","embassy","async","embassy-time-timg0","embassy-executor-thread"] }
-#esp-hal = { version = "0.17.0", features = [ "esp32c3","async","embassy","embassy-time-timg0","riscv","embassy-executor-thread" ] }
+hal = { package = "esp-hal", version = "0.18.0", features=["esp32c3","async"] }
+esp-hal-embassy = { version = "0.1.0", features = [ 
+    "time-timg0",
+    "esp32c3",    
+] }
 
-esp-backtrace = { version = "0.10.0", features = ["esp32c3", "panic-handler", "exception-handler", "print-uart"] }
+
+esp-backtrace = { version = "0.12.0", features = ["esp32c3", "panic-handler", "exception-handler", "println"] }
 esp-println = { version = "0.9.0", features = ["esp32c3","log","colors"] }
 log = { version = "0.4.21" }
-esp-alloc = { version = "0.3.0" }
-esp-wifi  = { version = "0.5", features = ["esp32c3", "phy-enable-usb", "embassy-net", "async", "esp-now"] }
+esp-alloc = { version = "0.4.0" }
+esp-wifi  = { version = "0.6", features = ["esp32c3", "phy-enable-usb", "embassy-net", "async", "esp-now"] }
 
 embedded-svc = { version = "0.27", default-features = false, features = [] }
 embedded-io = "0.6"
-heapless = { version = "0.7.14", default-features = false }
+heapless = { version = "0.8", default-features = false }
 embassy-time = "0.3"
 embassy-executor = { version = "0.5", features = ["nightly", "integrated-timers","executor-thread"] }
 
-static_cell = { version="2.0", features = ["nightly"] }
-embassy-sync = "0.5.0"
+static_cell = { version="2.1", features = ["nightly"] }
+embassy-sync = "0.6.0"
 embassy-futures = "0.1"
 embedded-hal = { version="1.0.0" }
 embedded-hal-async = "1.0.0"

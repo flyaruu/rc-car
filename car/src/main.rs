@@ -6,15 +6,16 @@
 extern crate alloc;
 use core::mem::MaybeUninit;
 
+use alloc::boxed::Box;
 use embassy_time::Timer;
 use esp_backtrace as _;
+use esp_hal_embassy::{init, Executor};
 use esp_println::print;
 use esp_wifi::{EspWifiInitFor, initialize, esp_now::EspNow};
-use hal::{clock::ClockControl, embassy::{self, executor::Executor}, gpio::IO, interrupt::enable, ledc::{channel::config::PinConfig, timer, LSGlobalClkSource, LowSpeed, LEDC}, peripherals::Peripherals, prelude::*, rng::Rng, rtc_cntl::Rtc, systimer::SystemTimer, timer::TimerGroup};
+use hal::{clock::ClockControl, gpio::{AnyInput, AnyOutput, Io, Level, Pull}, interrupt::enable, ledc::{channel::config::PinConfig, timer, LSGlobalClkSource, Ledc, LowSpeed}, peripherals::{Peripherals, LEDC}, prelude::*, rng::Rng, rtc_cntl::Rtc, system::SystemControl, timer::{systimer::SystemTimer, timg::TimerGroup}};
 
 use log::info;
 use protocol::{ControlMessage, TelemetryMessage, MessageChannel, MessagePublisher, Message, MessageSubscriber};
-use static_cell::make_static;
 
 use esp_backtrace as _;
 
@@ -47,30 +48,31 @@ fn init_heap() {
 fn main() -> ! {
     init_heap();
     let peripherals = Peripherals::take();
-    let system = peripherals.SYSTEM.split();
+    let system = SystemControl::new(peripherals.SYSTEM);
     let clocks = ClockControl::max(system.clock_control).freeze();
-    let clocks = make_static!(clocks);
-    // let rtc = make_static!(Rtc::new(peripherals.RTC_CNTL));
-    let rtc = make_static!(Rtc::new(peripherals.LPWR,None));
+    let clocks = Box::leak(Box::new(clocks));
+    let rtc = Box::leak(Box::new(Rtc::new(peripherals.LPWR,None)));
     esp_println::logger::init_logger(log::LevelFilter::Info);
     log::info!("Logger is setup");
-    let io = IO::new(peripherals.GPIO,peripherals.IO_MUX);
+    let io = Io::new(peripherals.GPIO,peripherals.IO_MUX);
 
-    let steering_pin = io.pins.gpio6.into_push_pull_output();
-    let motor_pin = io.pins.gpio7.into_push_pull_output();
+    // let steering_pin = io.pins.gpio6.into_push_pull_output();
+    // let steering_pin = AnyOutput::new(io.pins.gpio6, Level::Low);
+    // let motor_pin = io.pins.gpio7.into_push_pull_output();
+    // let motor_pin = AnyOutput::new(io.pins.gpio7, Level::Low);
 
-    let headlight_pin = io.pins.gpio0.into_push_pull_output();
-    let taillight_pin = io.pins.gpio3.into_push_pull_output();
-    let brakelight_pin = io.pins.gpio2.into_push_pull_output();
-    let reverselight_pin = io.pins.gpio4.into_push_pull_output();
+    // let headlight_pin = AnyOutput::new(io.pins.gpio0, Level::Low);
+    let taillight_pin = AnyOutput::new(io.pins.gpio3, Level::Low);
+    let brakelight_pin = AnyOutput::new(io.pins.gpio2, Level::Low);;
+    let reverselight_pin = AnyOutput::new(io.pins.gpio4, Level::Low);;
 
-    let left_blinker_pin = io.pins.gpio5.into_push_pull_output();
-    let right_blinker_pin = io.pins.gpio1.into_push_pull_output();
+    let left_blinker_pin = AnyOutput::new(io.pins.gpio5, Level::Low);;
+    let right_blinker_pin = AnyOutput::new(io.pins.gpio1, Level::Low);;
 
-    let tach_pin = io.pins.gpio10.into_floating_input();
+    let tach_pin = AnyInput::new(io.pins.gpio10, Pull::None);;
 
-    let ledc = LEDC::new(peripherals.LEDC, clocks);
-    let ledc = make_static!(ledc);
+    let ledc = Ledc::new(peripherals.LEDC, clocks);
+    let ledc = Box::leak(Box::new(ledc));
     ledc.set_global_slow_clock(LSGlobalClkSource::APBClk);
     
     enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
@@ -83,7 +85,7 @@ fn main() -> ! {
             frequency: 50_u32.Hz(),
         })
         .unwrap();
-    let servo_timer = make_static!(servo_timer);
+    let servo_timer = Box::leak(Box::new(servo_timer));
 
     // TODO, remove motor_timer
     let mut motor_timer = ledc.get_timer::<LowSpeed>(MOTOR_TIMER_NUMBER );
@@ -94,7 +96,7 @@ fn main() -> ! {
             frequency: 50_u32.Hz(),
         })
         .unwrap();
-    let motor_timer = make_static!(motor_timer);
+    let motor_timer = Box::leak(Box::new(motor_timer));
 
     let mut led_timer = ledc.get_timer::<LowSpeed>(LED_TIMER_NUMBER);
     led_timer
@@ -104,9 +106,9 @@ fn main() -> ! {
             frequency: 1000_u32.Hz(),
         })
         .unwrap();
-    let led_timer = make_static!(led_timer);
+    let led_timer = Box::leak(Box::new(led_timer));
 
-    let mut steering_channel = ledc.get_channel(STEERING_CHANNEL, steering_pin);
+    let mut steering_channel = ledc.get_channel(STEERING_CHANNEL, io.pins.gpio6);
     steering_channel
         .configure(hal::ledc::channel::config::Config {
             timer: servo_timer,
@@ -115,7 +117,7 @@ fn main() -> ! {
         })
         .unwrap();
 
-    let mut motor_channel = ledc.get_channel(MOTOR_CHANNEL, motor_pin);
+    let mut motor_channel = ledc.get_channel(MOTOR_CHANNEL, io.pins.gpio7);
     motor_channel
         .configure(hal::ledc::channel::config::Config {
             timer: motor_timer,
@@ -124,7 +126,7 @@ fn main() -> ! {
         })
         .unwrap();
 
-    let mut headlight_channel = ledc.get_channel(HEADLIGHT_CHANNEL, headlight_pin);
+    let mut headlight_channel = ledc.get_channel(HEADLIGHT_CHANNEL, io.pins.gpio0);
     headlight_channel
         .configure(hal::ledc::channel::config::Config {
             timer: led_timer,
@@ -135,19 +137,19 @@ fn main() -> ! {
 
     let headlight_controller = HeadlightController::new(headlight_channel,taillight_pin);
 
-    let steering_servo: &'static mut SteeringServo = make_static!(Servo::new(steering_channel));
-    let motor_servo: &'static mut MotorServo = make_static!(Servo::new(motor_channel));
+    let steering_servo: &'static mut SteeringServo = Box::leak(Box::new(Servo::new(steering_channel)));
+    let motor_servo: &'static mut MotorServo = Box::leak(Box::new(Servo::new(motor_channel)));
 
-    let executor = make_static!(Executor::new());
+    let executor = Box::leak(Box::new(Executor::new()));
     let timer_group = TimerGroup::new_async(peripherals.TIMG0, &clocks);    
-    embassy::init(&clocks,timer_group);
+    init(&clocks,timer_group);
 
     let timer = SystemTimer::new(peripherals.SYSTIMER).alarm0;
     let init = initialize(
         EspWifiInitFor::Wifi,
         timer,
         Rng::new(peripherals.RNG),
-        system.radio_clock_control,
+        peripherals.RADIO_CLK,
         &clocks,
     )
     .unwrap();
@@ -158,8 +160,7 @@ fn main() -> ! {
     let (_esp_manager, esp_sender, esp_receiver) = esp_now.split();
 
     // TODO unify?
-    let command_channel: &MessageChannel = make_static!(MessageChannel::new());
-    // let telemetry_channel: &MessageChannel = make_static!(PubSubChannel::new());
+    let command_channel: &MessageChannel = Box::leak(Box::new(MessageChannel::new()));
     hal::interrupt::enable(hal::peripherals::Interrupt::GPIO, hal::interrupt::Priority::Priority1).unwrap();
 
     executor.run(|spawner| {

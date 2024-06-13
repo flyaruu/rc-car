@@ -1,6 +1,7 @@
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
 use embassy_time::Timer;
+use hal::gpio::AnyOutput;
 use hal::gpio::OutputPin;
 use hal::ledc::{LowSpeed, channel::ChannelIFace};
 use hal::rtc_cntl::Rtc;
@@ -8,20 +9,17 @@ use log::info;
 use protocol::MOTOR_CENTER_POSITION;
 use protocol::{ControlMessage, Headlights, MessageSubscriber, Message, MessagePublisher, ReverseLights};
 
-use crate::types::BrakeLightPin;
 use crate::types::HeadlightPin;
-use crate::types::ReverseLightPin;
-use crate::types::TailLightPin;
 
-pub struct HeadlightController<'a, HP: OutputPin, TP: OutputPin> {
+pub struct HeadlightController<'a, HP: OutputPin> {
     channel: hal::ledc::channel::Channel<'a,LowSpeed,HP>,
-    taillight_pin: TP,
+    taillight_pin: AnyOutput<'a>,
     current_duty: u8,
 }
 
-impl <'a, HP: OutputPin, TP: OutputPin> HeadlightController<'a, HP, TP> {
+impl <'a, HP: OutputPin> HeadlightController<'a, HP> {
 
-    pub fn new(channel: hal::ledc::channel::Channel<'a,LowSpeed,HP>, taillight_pin: TP)->Self {
+    pub fn new(channel: hal::ledc::channel::Channel<'a,LowSpeed,HP>, taillight_pin: AnyOutput<'a>)->Self {
         HeadlightController{ channel, current_duty: 0, taillight_pin }
     }
 
@@ -32,7 +30,7 @@ impl <'a, HP: OutputPin, TP: OutputPin> HeadlightController<'a, HP, TP> {
 }
 
 #[embassy_executor::task]
-pub async fn light_controller(mut subscriber: MessageSubscriber, mut light_controller: HeadlightController<'static,HeadlightPin, TailLightPin>)-> ! {
+pub async fn light_controller(mut subscriber: MessageSubscriber, mut light_controller: HeadlightController<'static,HeadlightPin>)-> ! {
     loop {
         match subscriber.next_message_pure().await {
 
@@ -125,7 +123,7 @@ pub async fn brakelight_motor_monitor(mut subscriber: MessageSubscriber, publish
 }
 
 #[embassy_executor::task]
-pub async fn brakelight_controller(mut subscriber: MessageSubscriber, mut led_pin: BrakeLightPin)-> ! {
+pub async fn brakelight_controller(mut subscriber: MessageSubscriber, mut led_pin: AnyOutput<'static>)-> ! {
     loop {
         match subscriber.next_message_pure().await {
 
@@ -141,7 +139,7 @@ pub async fn brakelight_controller(mut subscriber: MessageSubscriber, mut led_pi
 }
 
 #[embassy_executor::task]
-pub async fn reverselight_controller(mut subscriber: MessageSubscriber, mut led_pin: ReverseLightPin)-> ! {
+pub async fn reverselight_controller(mut subscriber: MessageSubscriber, mut led_pin: AnyOutput<'static>)-> ! {
     loop {
         match subscriber.next_message_pure().await {
 
