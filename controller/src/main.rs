@@ -72,7 +72,9 @@ fn main() -> ! {
 
     let io = Io::new(peripherals.GPIO, peripherals.IO_MUX);
     let executor = Box::leak(Box::new(Executor::new()));
+    log::info!("Started executor");
     let timer_group = TimerGroup::new_async(peripherals.TIMG0, &clocks);
+    log::info!("Timer started");
 
     let rotary_pin_x_a = AnyInput::new(io.pins.gpio6, Pull::Up);
     let rotary_pin_x_b = AnyInput::new(io.pins.gpio4, Pull::Up);
@@ -82,12 +84,13 @@ fn main() -> ! {
 
     let button_pin_x = AnyInput::new(io.pins.gpio5, Pull::Up);
     let button_pin_y = AnyInput::new(io.pins.gpio9, Pull::Up);
+    log::info!("Got some pins");
 
     let button_pin_top_left = AnyInput::new(io.pins.gpio7, Pull::Up);
     let button_pin_top_right = AnyInput::new(io.pins.gpio8, Pull::Up);
 
     let status_pin = AnyOutput::new(io.pins.gpio3, Level::Low);
-    println!("Embassy init starting");
+    info!("Embassy init starting");
 
     init(&clocks, timer_group);
     info!("Embassy init done");
