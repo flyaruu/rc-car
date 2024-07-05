@@ -1,18 +1,14 @@
-use hal::{gpio::*, ledc::{channel, timer}};
+use hal::{
+    gpio::*,
+    ledc::{channel, timer},
+};
 
 use crate::servo::Servo;
 
-pub type RightBlinkerPin = Gpio1<Output<PushPull>>;
-pub type BrakeLightPin = Gpio2<Output<PushPull>>;
-pub type TailLightPin = Gpio3<Output<PushPull>>;
-pub type ReverseLightPin = Gpio4<Output<PushPull>>;
-pub type LeftBlinkerPin = Gpio5<Output<PushPull>>;
-pub type MotorPin = Gpio7<Output<PushPull>>;
+pub type MotorPin = GpioPin<7>;
 
-pub type TachPin = Gpio10<Input<Floating>>;
-
-pub type HeadlightPin = Gpio0<Output<PushPull>>;
-pub type SteeringPin = Gpio6<Output<PushPull>>;
+pub type HeadlightPin = GpioPin<0>; //Gpio0<Output<PushPull>>;
+pub type SteeringPin = GpioPin<6>; //Gpio6<Output<PushPull>>;
 
 pub type MotorServo = Servo<'static, MotorPin, 820, 1638, 14, MOTOR_FREQUENCY>;
 pub type SteeringServo = Servo<'static, SteeringPin, 600, 2415, 14, MOTOR_FREQUENCY>;

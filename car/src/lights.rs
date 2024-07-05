@@ -1,28 +1,34 @@
 use embassy_futures::select::select;
 use embassy_futures::select::Either;
 use embassy_time::Timer;
+use hal::gpio::AnyOutput;
 use hal::gpio::OutputPin;
-use hal::ledc::{LowSpeed, channel::ChannelIFace};
+use hal::ledc::{channel::ChannelIFace, LowSpeed};
 use hal::rtc_cntl::Rtc;
 use log::info;
 use protocol::MOTOR_CENTER_POSITION;
-use protocol::{ControlMessage, Headlights, MessageSubscriber, Message, MessagePublisher, ReverseLights};
+use protocol::{
+    ControlMessage, Headlights, Message, MessagePublisher, MessageSubscriber, ReverseLights,
+};
 
-use crate::types::BrakeLightPin;
 use crate::types::HeadlightPin;
-use crate::types::ReverseLightPin;
-use crate::types::TailLightPin;
 
-pub struct HeadlightController<'a, HP: OutputPin, TP: OutputPin> {
-    channel: hal::ledc::channel::Channel<'a,LowSpeed,HP>,
-    taillight_pin: TP,
+pub struct HeadlightController<'a, HP: OutputPin> {
+    channel: hal::ledc::channel::Channel<'a, LowSpeed, HP>,
+    taillight_pin: AnyOutput<'a>,
     current_duty: u8,
 }
 
-impl <'a, HP: OutputPin, TP: OutputPin> HeadlightController<'a, HP, TP> {
-
-    pub fn new(channel: hal::ledc::channel::Channel<'a,LowSpeed,HP>, taillight_pin: TP)->Self {
-        HeadlightController{ channel, current_duty: 0, taillight_pin }
+impl<'a, HP: OutputPin> HeadlightController<'a, HP> {
+    pub fn new(
+        channel: hal::ledc::channel::Channel<'a, LowSpeed, HP>,
+        taillight_pin: AnyOutput<'a>,
+    ) -> Self {
+        HeadlightController {
+            channel,
+            current_duty: 0,
+            taillight_pin,
+        }
     }
 
     pub fn set_duty(&mut self, percentage: u8) {
@@ -32,53 +38,67 @@ impl <'a, HP: OutputPin, TP: OutputPin> HeadlightController<'a, HP, TP> {
 }
 
 #[embassy_executor::task]
-pub async fn light_controller(mut subscriber: MessageSubscriber, mut light_controller: HeadlightController<'static,HeadlightPin, TailLightPin>)-> ! {
+pub async fn light_controller(
+    mut subscriber: MessageSubscriber,
+    mut light_controller: HeadlightController<'static, HeadlightPin>,
+) -> ! {
     loop {
         match subscriber.next_message_pure().await {
-
-            Message::Control(ControlMessage::HeadlightCommand(cmd)) => {
-                match cmd {
-                    Headlights::High=>{
-                        info!("Lights high");
-                        light_controller.set_duty(99);
-                        light_controller.taillight_pin.set_high();
-                    }
-                    Headlights::Low => {
-                        info!("Lights low");
-                        light_controller.set_duty(25);
-                        light_controller.taillight_pin.set_high();
-                    },
-                    Headlights::Off => {
-                        info!("Lights off");
-                        light_controller.set_duty(0);
-                        light_controller.taillight_pin.set_low();
-                    }, 
+            Message::Control(ControlMessage::HeadlightCommand(cmd)) => match cmd {
+                Headlights::High => {
+                    info!("Lights high");
+                    light_controller.set_duty(99);
+                    light_controller.taillight_pin.set_high();
+                }
+                Headlights::Low => {
+                    info!("Lights low");
+                    light_controller.set_duty(25);
+                    light_controller.taillight_pin.set_high();
+                }
+                Headlights::Off => {
+                    info!("Lights off");
+                    light_controller.set_duty(0);
+                    light_controller.taillight_pin.set_low();
                 }
             },
-            _ => {},
+            _ => {}
         }
     }
 }
 
 #[embassy_executor::task]
-pub async fn reverselight_motor_monitor(mut subscriber: MessageSubscriber, publisher: MessagePublisher)-> ! {
+pub async fn reverselight_motor_monitor(
+    mut subscriber: MessageSubscriber,
+    publisher: MessagePublisher,
+) -> ! {
     loop {
         match subscriber.next_message_pure().await {
-
             Message::Control(ControlMessage::MotorPower(value)) => {
                 if value < MOTOR_CENTER_POSITION {
-                    publisher.publish(Message::Control(ControlMessage::ReverselightCommand(ReverseLights::On))).await
+                    publisher
+                        .publish(Message::Control(ControlMessage::ReverselightCommand(
+                            ReverseLights::On,
+                        )))
+                        .await
                 } else {
-                    publisher.publish(Message::Control(ControlMessage::ReverselightCommand(ReverseLights::Off))).await
+                    publisher
+                        .publish(Message::Control(ControlMessage::ReverselightCommand(
+                            ReverseLights::Off,
+                        )))
+                        .await
                 }
-            },
-            _ => {},
+            }
+            _ => {}
         }
     }
 }
 
 #[embassy_executor::task]
-pub async fn brakelight_motor_monitor(mut subscriber: MessageSubscriber, publisher: MessagePublisher, rtc: &'static Rtc<'static>)-> ! {
+pub async fn brakelight_motor_monitor(
+    mut subscriber: MessageSubscriber,
+    publisher: MessagePublisher,
+    rtc: &'static Rtc<'static>,
+) -> ! {
     let mut last_motor_setting = 0_i32;
     let mut last_update_time = rtc.get_time_ms();
     let mut brakelight_on = false;
@@ -86,28 +106,33 @@ pub async fn brakelight_motor_monitor(mut subscriber: MessageSubscriber, publish
     loop {
         let selection = select(subscriber.next_message_pure(), Timer::after_millis(500)).await;
         match selection {
-            Either::First(message) => {
-                match message {
-                    Message::Control(ControlMessage::MotorPower(value)) => {
-                        if value.abs() < last_motor_setting.abs() {
-                            info!("Braking");
-                            publisher.publish(Message::Control(ControlMessage::BrakelightCommand(protocol::Brakelights::On))).await;
-                            brakelight_on = true;
-                        } else {
-                            info!("Accelerating. Brakelight: {}",brakelight_on);
-                            if brakelight_on {
-                                info!("Accelerating, switching on brakelight");
-                            }
-                            publisher.publish(Message::Control(ControlMessage::BrakelightCommand(protocol::Brakelights::Off))).await;
-                            brakelight_on = false;
-
+            Either::First(message) => match message {
+                Message::Control(ControlMessage::MotorPower(value)) => {
+                    if value.abs() < last_motor_setting.abs() {
+                        info!("Braking");
+                        publisher
+                            .publish(Message::Control(ControlMessage::BrakelightCommand(
+                                protocol::Brakelights::On,
+                            )))
+                            .await;
+                        brakelight_on = true;
+                    } else {
+                        info!("Accelerating. Brakelight: {}", brakelight_on);
+                        if brakelight_on {
+                            info!("Accelerating, switching on brakelight");
                         }
-                        last_update_time = rtc.get_time_ms();
-                        last_motor_setting = value;
-                    },
-                    _ => {},
+                        publisher
+                            .publish(Message::Control(ControlMessage::BrakelightCommand(
+                                protocol::Brakelights::Off,
+                            )))
+                            .await;
+                        brakelight_on = false;
+                    }
+                    last_update_time = rtc.get_time_ms();
+                    last_motor_setting = value;
                 }
-            }
+                _ => {}
+            },
             Either::Second(_) => {
                 if brakelight_on {
                     let elapsed = rtc.get_time_ms() - last_update_time;
@@ -116,7 +141,11 @@ pub async fn brakelight_motor_monitor(mut subscriber: MessageSubscriber, publish
                     if elapsed > BRAKELIGHT_TIMEOUT {
                         info!("Switch off brakelight");
                         brakelight_on = false;
-                        publisher.publish(Message::Control(ControlMessage::BrakelightCommand(protocol::Brakelights::Off))).await;
+                        publisher
+                            .publish(Message::Control(ControlMessage::BrakelightCommand(
+                                protocol::Brakelights::Off,
+                            )))
+                            .await;
                     }
                 }
             }
@@ -125,33 +154,33 @@ pub async fn brakelight_motor_monitor(mut subscriber: MessageSubscriber, publish
 }
 
 #[embassy_executor::task]
-pub async fn brakelight_controller(mut subscriber: MessageSubscriber, mut led_pin: BrakeLightPin)-> ! {
+pub async fn brakelight_controller(
+    mut subscriber: MessageSubscriber,
+    mut led_pin: AnyOutput<'static>,
+) -> ! {
     loop {
         match subscriber.next_message_pure().await {
-
-            Message::Control(ControlMessage::BrakelightCommand(cmd)) => {
-                match cmd {
+            Message::Control(ControlMessage::BrakelightCommand(cmd)) => match cmd {
                 protocol::Brakelights::On => led_pin.set_high(),
                 protocol::Brakelights::Off => led_pin.set_low(),
-                }
             },
-            _ => {},
+            _ => {}
         }
     }
 }
 
 #[embassy_executor::task]
-pub async fn reverselight_controller(mut subscriber: MessageSubscriber, mut led_pin: ReverseLightPin)-> ! {
+pub async fn reverselight_controller(
+    mut subscriber: MessageSubscriber,
+    mut led_pin: AnyOutput<'static>,
+) -> ! {
     loop {
         match subscriber.next_message_pure().await {
-
-            Message::Control(ControlMessage::ReverselightCommand(cmd)) => {
-                match cmd {
+            Message::Control(ControlMessage::ReverselightCommand(cmd)) => match cmd {
                 protocol::ReverseLights::On => led_pin.set_high(),
                 protocol::ReverseLights::Off => led_pin.set_low(),
-                }
             },
-            _ => {},
+            _ => {}
         }
     }
 }
