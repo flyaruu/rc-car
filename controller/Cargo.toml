@@ -23,7 +23,7 @@ embedded-svc = { version = "0.27", default-features = false, features = [] }
 embedded-io = "0.6"
 heapless = { version = "0.8", default-features = false }
 embassy-time = "0.3"
-embassy-executor = { version = "0.5", features = ["nightly", "integrated-timers","executor-thread"] }
+embassy-executor = { version = "0.5", features = ["integrated-timers","executor-thread"] }
 
 embassy-sync = "0.6.0"
 embassy-futures = "0.1"
