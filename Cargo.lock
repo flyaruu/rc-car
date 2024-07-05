@@ -979,6 +979,7 @@ dependencies = [
 [[package]]
 name = "rotary-encoder-hal"
 version = "0.5.0"
+source = "git+https://github.com/flyaruu/rotary-encoder-hal?rev=b8c5baecb99b686a7729ecc817dad6043030c80f#b8c5baecb99b686a7729ecc817dad6043030c80f"
 dependencies = [
  "either",
  "embedded-hal 0.2.7",
